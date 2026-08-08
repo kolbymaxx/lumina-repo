@@ -19,7 +19,7 @@ Settings live under **Settings → Music27**.
 1. Fresh launch starts **expanded** (mini pill + 5-tab pill).
 2. Scrolling down collapses into the merged red · mini · Search pill.
 3. Tap the **red button** to expand back to the 5-tab layout.
-4. Stock tab bar / mini player stay intact; an overlay **cover** paints over them while the glass dock is ON (never fades MiniPlayer / Library hosts).
+4. Stock mini / tabs stay intact; glass pills float in a **bottom-strip overlay** (no solid cover plate — that caused the iOS 17 white screen).
 
 ## Blank-screen history
 
@@ -39,7 +39,8 @@ Settings live under **Settings → Music27**.
 | **1.1.16** | Soft-hide Music `tabsViewController` chrome — still left stock tabs visible on device for many users |
 | **1.1.17** | **Cover, don’t mutate:** overlay mask over stock chrome + dual glass pills on top. Never alpha-hide Music views |
 | **1.1.18** | **Make cover visible:** solid cover, `UIWindowLevelStatusBar - 1`, `safeBottom+12` float, install retries + Console logs |
-| **1.1.19** | **iOS 17-first:** adaptive light/dark cover (white on light Library), StatusBar-level dual pills, slightly larger float gap on 17+. Still never mutates Music views |
+| **1.1.19** | **iOS 17-first:** adaptive light/dark cover on a full-screen StatusBar-level overlay — **white-screened** light Library on iOS 17.3 (SwiftPeek still saw TabBar/MiniPlayer alive) |
+| **1.1.20** | **White-screen recovery:** remove solid cover; overlay is a **bottom strip only** at `Normal+10`; one-time force dock OFF. SwiftPeek dump on iPhone13,1 / 17.3 confirmed `TabBarController` + `MiniPlayerViewController` |
 
 Prefs are read preferring `/var/jb/.../com.music27.tweak.plist` (Dopamine), then jbroot (RootHide), then rootful.
 
@@ -60,10 +61,10 @@ Architecture: `iphoneos-arm64` (rootless, files under `/var/jb`).
 ## Verify on iOS 17 (Dopamine rootless)
 
 1. Install the CI rootless `.deb` for this version; respring.
-2. **Settings → Music27** footer must say **1.1.19**. Enable Music27 + Floating Glass Dock **ON**.
-3. **Force-quit Music**, relaunch Library (light or dark).
-4. Expect: stock mini/tabs covered by a canvas-matching plate + dual glass pills floating above the home indicator.
-5. Optional Console filter: `Music27 1.1.19` → `loaded` / `install OK` / `layout iOS=17`.
+2. **Settings → Music27** footer must say **1.1.20**. Floating Glass Dock is forced **OFF** once (white-screen recovery) — Music should open stock.
+3. Re-enable Floating Glass Dock **ON**, then **force-quit Music** and relaunch.
+4. Expect: Library usable; dual glass pills in a bottom strip only (stock mini may still peek behind — OK). No full-screen white plate.
+5. Optional Console filter: `Music27 1.1.20` → `loaded` / `install OK` / `layout … strip=`.
 
 ## Build
 

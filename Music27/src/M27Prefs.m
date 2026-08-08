@@ -136,6 +136,7 @@ static void M27WritePrefsDictionary(NSDictionary *dict) {
         seed[@"dockOverlayFix112"] = @YES;
         seed[@"dockSafeBoot115"] = @YES;
         seed[@"miniFadeRecovery115"] = @YES;
+        seed[@"whiteScreenRecovery120"] = @YES;
         if (seed[@"enabled"] == nil) seed[@"enabled"] = @YES;
         seed[@"glassTabBar"] = @NO;
         seed[@"colorTheme"] = @NO;
@@ -153,6 +154,28 @@ static void M27WritePrefsDictionary(NSDictionary *dict) {
         CFPreferencesSetAppValue(CFSTR("colorTheme"), kCFBooleanFalse,
                                  (__bridge CFStringRef)M27PrefDomain);
         CFPreferencesSetAppValue(CFSTR("enabled"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesAppSynchronize((__bridge CFStringRef)M27PrefDomain);
+    } else if (_plist[@"whiteScreenRecovery120"] == nil) {
+        // 1.1.20: 1.1.19 full-screen white cover blanked iOS 17.3 light Music.
+        // Force dock OFF once so Library is usable after install.
+        NSMutableDictionary *seed = [_plist mutableCopy] ?: [NSMutableDictionary dictionary];
+        seed[@"whiteScreenRecovery120"] = @YES;
+        seed[@"miniFadeRecovery115"] = @YES;
+        seed[@"dockOverlayFix112"] = @YES;
+        seed[@"hostBlankFix111"] = @YES;
+        seed[@"glassTabBar"] = @NO;
+        M27WritePrefsDictionary(seed);
+        _plist = [seed copy];
+        CFPreferencesSetAppValue(CFSTR("whiteScreenRecovery120"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("miniFadeRecovery115"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("dockOverlayFix112"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("hostBlankFix111"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("glassTabBar"), kCFBooleanFalse,
                                  (__bridge CFStringRef)M27PrefDomain);
         CFPreferencesAppSynchronize((__bridge CFStringRef)M27PrefDomain);
     } else if (_plist[@"miniFadeRecovery115"] == nil) {

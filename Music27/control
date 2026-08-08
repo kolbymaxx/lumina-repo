@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.19
+Version: 1.1.20
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.19 targets iOS 17 Dopamine first — adaptive cover + StatusBar-level float dock, never mutates Music views.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.20 recovers iOS 17 white screen — bottom-strip float dock, no solid cover plate.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks
