@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.30: The dock's mini player now shows the real track, artist and artwork, and updates when the song changes. Music publishes its now-playing state through MediaRemote, not MPNowPlayingInfoCenter — the old source was always empty.</string>
+			<string>1.1.31: The dock's mini player works. This build instruments the album page's Play / Shuffle / Download row — the glass circles are inert and the stock buttons still show through underneath. Open an album, then send status.log.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -108,7 +108,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.30 — now-playing via MediaRemote. Verify on iOS 17.3 before APT.</string>
+			<string>Music27 1.1.31 — album control diagnostics. Verify on iOS 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>

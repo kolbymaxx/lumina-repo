@@ -82,8 +82,15 @@ static UIView *M27FindDownloadControl(UIViewController *vc) {
     return M27FindControlWithTitle(vc.view, @[ @"download" ], NO, 0);
 }
 
+/// Compact description for status.log — class plus frame. Defined below.
+static NSString *M27DescribeControl(UIView *view);
+
 static void M27FireControl(UIView *control) {
-    if (!control) return;
+    if (!control) {
+        M27WriteStatus(@"album_fire_nil", @{});
+        return;
+    }
+    M27WriteStatus(@"album_fire", @{ @"target": M27DescribeControl(control) });
     if ([control isKindOfClass:UIControl.class]) {
         [(UIControl *)control sendActionsForControlEvents:UIControlEventTouchUpInside];
         return;
@@ -241,16 +248,29 @@ static void M27FireControl(UIView *control) {
 
 @end
 
-static void M27HideViewKeepLayout(UIView *view) {
-    if (!view) return;
-    // Never blank a content host / SwiftUI hosting layer / large container.
-    if (M27IsProtectedMusicHost(view)) return;
+/// Returns the reason a hide was refused, or nil when it was applied.
+///
+/// The size guards exist so we never blank a content container, but when they
+/// trip the stock control stays visible under our glass row — which is exactly
+/// the "not covering the old ones" symptom on 17.3. Silent refusal made that
+/// indistinguishable from a failed lookup, so it reports now.
+static NSString *M27HideViewKeepLayout(UIView *view) {
+    if (!view) return @"nil";
+    if (M27IsProtectedMusicHost(view)) return @"protected_host";
     NSString *name = NSStringFromClass(view.class);
-    if ([name containsString:@"Hosting"] || [name containsString:@"UIHosting"]) return;
-    if (view.bounds.size.height > 72.0) return;
-    if (view.bounds.size.width > 420.0) return;
-    view.alpha = 0.0;
-    view.userInteractionEnabled = NO;
+    if ([name containsString:@"Hosting"] || [name containsString:@"UIHosting"]) return @"hosting";
+    if (view.bounds.size.height > 72.0) return @"too_tall";
+    if (view.bounds.size.width > 420.0) return @"too_wide";
+    // layer.opacity, not alpha: alpha < 0.01 makes a view un-hit-testable, and
+    // M27FireControl may need to reach it. Same trap the dock hit in 1.1.28.
+    view.layer.opacity = 0.0;
+    return nil;
+}
+
+static NSString *M27DescribeControl(UIView *view) {
+    if (!view) return @"nil";
+    return [NSString stringWithFormat:@"%@%@", NSStringFromClass(view.class),
+            NSStringFromCGRect(view.frame)];
 }
 
 static void M27InstallAlbumControls(UIViewController *vc) {
@@ -269,14 +289,36 @@ static void M27InstallAlbumControls(UIViewController *vc) {
     // Exact title match avoids false positives like "playlist" / "Listen Now".
     UIView *play = M27FindControlWithTitle(vc.view, @[ @"play" ], YES, 0);
     UIView *shuffle = M27FindControlWithTitle(vc.view, @[ @"shuffle" ], YES, 0);
-    if (!play || !shuffle) return;
+    if (!play || !shuffle) {
+        // The lookup matches on title text; if Music 17 renders these through
+        // SwiftUI there may be no titled UIControl to find, which would explain
+        // both dead buttons and uncovered stock ones.
+        M27WriteStatus(@"album_lookup_failed", @{
+            @"play": M27DescribeControl(play),
+            @"shuffle": M27DescribeControl(shuffle),
+            @"vc": NSStringFromClass(vc.class),
+        });
+        return;
+    }
 
     // Hide only small stock controls — never a hosting/content ancestor.
-    M27HideViewKeepLayout(play);
-    M27HideViewKeepLayout(shuffle);
+    NSString *playWhy = M27HideViewKeepLayout(play);
+    NSString *shuffleWhy = M27HideViewKeepLayout(shuffle);
 
     UIView *download = M27FindDownloadControl(vc);
-    M27HideViewKeepLayout(download);
+    NSString *downloadWhy = M27HideViewKeepLayout(download);
+
+    M27WriteStatus(@"album_controls", @{
+        @"vc": NSStringFromClass(vc.class),
+        @"play": M27DescribeControl(play),
+        @"play_is_control": [play isKindOfClass:UIControl.class] ? @"yes" : @"no",
+        @"play_hidden": playWhy ?: @"yes",
+        @"shuffle": M27DescribeControl(shuffle),
+        @"shuffle_is_control": [shuffle isKindOfClass:UIControl.class] ? @"yes" : @"no",
+        @"shuffle_hidden": shuffleWhy ?: @"yes",
+        @"download": M27DescribeControl(download),
+        @"download_hidden": downloadWhy ?: @"yes",
+    });
 
     // Place our row roughly where the play control was.
     CGRect playFrame = [play convertRect:play.bounds toView:vc.view];

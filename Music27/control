@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.30
+Version: 1.1.31
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.30: the dock now shows the real track and artwork. Music publishes via MediaRemote, not MPNowPlayingInfoCenter, so the old source was always empty.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.31: instruments the album Play/Shuffle/Download row so status.log shows why the glass buttons are inert and why the stock ones still show through.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks
