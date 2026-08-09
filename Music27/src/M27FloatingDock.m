@@ -309,11 +309,7 @@ static const CGFloat kM27CircleButton = 44.0;
     for (NSInteger i = 0; i < count; i++) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
         button.tag = i;
-        button.titleLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightMedium];
-        button.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-        button.titleLabel.numberOfLines = 1;
         button.tintColor = UIColor.secondaryLabelColor;
-        // Avoid UIButtonConfiguration — simpler layout is more stable inside Music.
 
         NSString *title = nil;
         if ([self.delegate respondsToSelector:@selector(floatingDock:titleForTabIndex:)]) {
@@ -334,13 +330,32 @@ static const CGFloat kM27CircleButton = 44.0;
             icon = [UIImage systemImageNamed:sys withConfiguration:cfg];
         }
 
-        [button setImage:icon forState:UIControlStateNormal];
-        [button setTitle:title forState:UIControlStateNormal];
-        [button setTitleColor:UIColor.secondaryLabelColor forState:UIControlStateNormal];
-        button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-        // Stack icon above title.
-        button.titleEdgeInsets = UIEdgeInsetsMake(28, -22, 0, 0);
-        button.imageEdgeInsets = UIEdgeInsetsMake(-10, 12, 10, -12);
+        // UIButtonConfiguration keeps icon-above-title stable (old edgeInsets often
+        // collapsed to an empty tabs pill — stock Music tabs stayed visible alone).
+        if (@available(iOS 15.0, *)) {
+            UIButtonConfiguration *config = [UIButtonConfiguration plainButtonConfiguration];
+            config.image = icon;
+            config.title = title;
+            config.imagePlacement = NSDirectionalRectEdgeTop;
+            config.imagePadding = 2.0;
+            config.baseForegroundColor = UIColor.secondaryLabelColor;
+            UIFont *font = [UIFont systemFontOfSize:10 weight:UIFontWeightMedium];
+            config.titleTextAttributesTransformer =
+                ^NSDictionary<NSAttributedStringKey, id> *(NSDictionary<NSAttributedStringKey, id> *incoming) {
+                    NSMutableDictionary *out = [incoming mutableCopy] ?: [NSMutableDictionary dictionary];
+                    out[NSFontAttributeName] = font;
+                    return out;
+                };
+            config.contentInsets = NSDirectionalEdgeInsetsMake(4, 2, 4, 2);
+            button.configuration = config;
+        } else {
+            [button setImage:icon forState:UIControlStateNormal];
+            [button setTitle:title forState:UIControlStateNormal];
+            [button setTitleColor:UIColor.secondaryLabelColor forState:UIControlStateNormal];
+            button.titleLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightMedium];
+            button.titleLabel.numberOfLines = 1;
+            button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+        }
         [button addTarget:self action:@selector(tabTapped:) forControlEvents:UIControlEventTouchUpInside];
         [self.tabsStack addArrangedSubview:button];
         [self.tabButtons addObject:button];
@@ -453,7 +468,15 @@ static const CGFloat kM27CircleButton = 44.0;
         BOOL selected = (button.tag == self.selectedTabIndex);
         UIColor *color = selected ? active : inactive;
         button.tintColor = color;
-        [button setTitleColor:color forState:UIControlStateNormal];
+        if (@available(iOS 15.0, *)) {
+            UIButtonConfiguration *config = button.configuration;
+            if (config) {
+                config.baseForegroundColor = color;
+                button.configuration = config;
+            }
+        } else {
+            [button setTitleColor:color forState:UIControlStateNormal];
+        }
         if (selected) {
             button.backgroundColor = [active colorWithAlphaComponent:0.12];
             button.layer.cornerRadius = 16.0;

@@ -135,6 +135,7 @@ static void M27WritePrefsDictionary(NSDictionary *dict) {
         seed[@"hostBlankFix111"] = @YES;
         seed[@"dockOverlayFix112"] = @YES;
         seed[@"dockSafeBoot115"] = @YES;
+        seed[@"miniFadeRecovery115"] = @YES;
         if (seed[@"enabled"] == nil) seed[@"enabled"] = @YES;
         seed[@"glassTabBar"] = @NO;
         seed[@"colorTheme"] = @NO;
@@ -152,6 +153,24 @@ static void M27WritePrefsDictionary(NSDictionary *dict) {
         CFPreferencesSetAppValue(CFSTR("colorTheme"), kCFBooleanFalse,
                                  (__bridge CFStringRef)M27PrefDomain);
         CFPreferencesSetAppValue(CFSTR("enabled"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesAppSynchronize((__bridge CFStringRef)M27PrefDomain);
+    } else if (_plist[@"miniFadeRecovery115"] == nil) {
+        // 1.1.15: recover from 1.1.14 MiniPlayer fade black/crash — force dock OFF once.
+        NSMutableDictionary *seed = [_plist mutableCopy] ?: [NSMutableDictionary dictionary];
+        seed[@"miniFadeRecovery115"] = @YES;
+        seed[@"dockOverlayFix112"] = @YES;
+        seed[@"hostBlankFix111"] = @YES;
+        seed[@"glassTabBar"] = @NO;
+        M27WritePrefsDictionary(seed);
+        _plist = [seed copy];
+        CFPreferencesSetAppValue(CFSTR("miniFadeRecovery115"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("dockOverlayFix112"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("hostBlankFix111"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("glassTabBar"), kCFBooleanFalse,
                                  (__bridge CFStringRef)M27PrefDomain);
         CFPreferencesAppSynchronize((__bridge CFStringRef)M27PrefDomain);
     } else if (_plist[@"dockOverlayFix112"] == nil) {

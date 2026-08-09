@@ -26,6 +26,11 @@ static void M27ClearPinsCallback(CFNotificationCenterRef center, void *observer,
         [M27Prefs.shared reload];
         (void)M27PinStore.shared;
         (void)M27ColorTheme.shared;
+        // Console filter: Music27 1.1.18 — proves dylib loaded after install.
+        NSLog(@"[Music27 1.1.18] loaded into %@ enabled=%d glassDock=%d",
+              NSBundle.mainBundle.bundleIdentifier ?: @"?",
+              (int)M27Prefs.shared.enabled,
+              (int)M27Prefs.shared.glassTabBarEnabled);
 
         CFNotificationCenterAddObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),

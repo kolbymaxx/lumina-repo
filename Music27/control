@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.14
+Version: 1.1.18
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.14 floats the glass dock with safeBottom+12 and soft-hides stock tab/mini chrome (alpha only).
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.18 solid overlay cover + StatusBar-level float dock — never mutates Music views.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks

@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.14: Floating Glass Dock sits at safeBottom+12 (not glued to the home indicator) and soft-hides stock tab/mini chrome. Passthrough overlay window keeps Library tappable. Enable Music27 OFF = fully stock.</string>
+			<string>1.1.18: Solid overlay cover + StatusBar-level dual glass pills (safeBottom+12). Does not fade Music views. Confirm footer says 1.1.18 after install, then force-quit Music.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -94,7 +94,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.14 — real float (safeBottom+12). No APT publish until verified on iPhone X.</string>
+			<string>Music27 1.1.18 — solid cover + float dock. No APT publish until verified on iPhone X.</string>
 		</dict>
 	</array>
 	<key>title</key>
