@@ -110,6 +110,8 @@ Each entry cost at least one device cycle.
 | FOVO field walks on Music UIViewControllers / UIViews | SIGSEGV (0.3.0, 0.3.5) | Per-app allowlist; never transfers |
 | Async logging around a suspected crash | Loses exactly the line that explains it | Synchronous + `fsync` |
 | Asserting a cause from a symptom without instrumentation | Five wrong Music27 theories: cover plate → window level → app window level → window size → install path. The real cause was a crash | Instrument first |
+| "First `UIControl` in the subtree" as a tap target | Music27 fired `NowPlayingShuffleButton` — a real ivar of MiniPlayerViewController parked off-screen at x=-28 — on 48 consecutive taps. Not a no-op: it silently toggled shuffle | Reject controls that are hidden, disabled, transparent, zero-sized, or outside the tapped view's bounds |
+| Assuming a screen's action is a control at all | The mini player has `playPauseButton`, `skipButton`, `reverseButton`, `shuffleButton`, `repeatButton`, `handoffButton` — and *none* of them expands it. Expanding is a gesture | Try `accessibilityActivate`, then gesture targets, and log which path won |
 | Shared-source **ObjC classes** with one fixed name | ObjC's class table is global and keyed by name; two dylibs in one process register the same class and the runtime picks one — possibly a stale copy from a tweak built months ago | `-DSPK_CLASS_PREFIX` per consumer. Plain C functions are safe (two-level namespace) |
 | `../` in a Theos `_FILES` entry | Object files land outside `.theos/obj` | Symlink the shared directory into `src/` |
 | Path-filtered CI that does not list the shared directory | A shared-source change silently ships nothing | Add `SPKit/**` to every consumer's workflow trigger |

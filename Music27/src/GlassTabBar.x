@@ -336,16 +336,124 @@ static UIViewController *M27FindMiniPlayerViewController(UITabBarController *tbc
 /// First UIControl anywhere under `view`, breadth-first, depth-capped.
 /// Fallback for when hitTest finds nothing useful — Music's mini player wraps
 /// its tap target differently across versions.
-static UIControl *M27FirstControlIn(UIView *view, NSInteger depth) {
+/// "The first UIControl anywhere in this subtree" was a bad question to ask.
+///
+/// 1.1.37 logged the answer 48 times:
+///
+///   nowplaying_sent_action control=MusicApplication.NowPlayingShuffleButton
+///                          frame={{-28, 14}, {28, 28}}
+///
+/// MiniPlayerViewController really does own a `shuffleButton`, parked off-screen
+/// at x = -28 because the compact layout does not show it. It just happens to
+/// come first in subview order. So every tap on the glass pill was toggling an
+/// invisible shuffle control — not a no-op, an actual wrong action.
+///
+/// A control that is off-screen, hidden, transparent or zero-sized is not what
+/// the user pointed at, so it is not a candidate.
+static BOOL M27ControlIsPlausibleTarget(UIControl *control, UIView *root) {
+    if (!control || !control.isEnabled || control.hidden || control.alpha < 0.01) return NO;
+    CGRect bounds = control.bounds;
+    if (bounds.size.width < 8.0 || bounds.size.height < 8.0) return NO;
+
+    CGRect inRoot = [control convertRect:control.bounds toView:root];
+    // Must actually overlap the thing the user tapped.
+    if (!CGRectIntersectsRect(inRoot, root.bounds)) return NO;
+    if (CGRectGetMinX(inRoot) < -1.0 || CGRectGetMinY(inRoot) < -1.0) return NO;
+    return YES;
+}
+
+static UIControl *M27FirstControlIn(UIView *view, NSInteger depth, UIView *root) {
     if (!view || depth > 4) return nil;
     for (UIView *sub in view.subviews) {
-        if ([sub isKindOfClass:UIControl.class]) return (UIControl *)sub;
+        if ([sub isKindOfClass:UIControl.class] &&
+            M27ControlIsPlausibleTarget((UIControl *)sub, root)) {
+            return (UIControl *)sub;
+        }
     }
     for (UIView *sub in view.subviews) {
-        UIControl *hit = M27FirstControlIn(sub, depth + 1);
+        UIControl *hit = M27FirstControlIn(sub, depth + 1, root);
         if (hit) return hit;
     }
     return nil;
+}
+
+/// Every tap/long-press recogniser on `view` and its ancestors, nearest first.
+static NSArray<UIGestureRecognizer *> *M27TapGesturesNear(UIView *view, NSInteger levels) {
+    NSMutableArray<UIGestureRecognizer *> *found = [NSMutableArray array];
+    UIView *node = view;
+    for (NSInteger i = 0; node && i <= levels; i++, node = node.superview) {
+        for (UIGestureRecognizer *gr in node.gestureRecognizers) {
+            if (!gr.isEnabled) continue;
+            if ([gr isKindOfClass:UITapGestureRecognizer.class]) [found addObject:gr];
+        }
+    }
+    return found;
+}
+
+/// Invoke a recogniser's registered target/action pairs directly.
+///
+/// Expanding the mini player is a gesture, not a control action — there is no
+/// button to send UIControlEventTouchUpInside to, which is why both
+/// accessibilityActivate and the control search fail. UIKit offers no public way
+/// to fire a recogniser, so read its targets.
+///
+/// This may still no-op: a handler that checks `gr.state == .ended` will bail,
+/// because the recogniser is sitting in .possible and state is read-only. That
+/// is exactly why the outcome is logged rather than assumed.
+static NSInteger M27FireGestureTargets(UIGestureRecognizer *gr) {
+    if (!gr) return 0;
+    NSInteger fired = 0;
+    @try {
+        id targets = [gr valueForKey:@"_targets"];
+        if (![targets isKindOfClass:NSArray.class]) return 0;
+        for (id entry in (NSArray *)targets) {
+            id target = nil;
+            SEL action = NULL;
+
+            Ivar tIvar = class_getInstanceVariable(object_getClass(entry), "_target");
+            if (tIvar) target = object_getIvar(entry, tIvar);
+
+            Ivar aIvar = class_getInstanceVariable(object_getClass(entry), "_action");
+            if (aIvar) {
+                // _action is a SEL, not an object — read it as raw bytes.
+                ptrdiff_t off = ivar_getOffset(aIvar);
+                action = *(SEL *)((uintptr_t)(__bridge void *)entry + (uintptr_t)off);
+            }
+            if (!target || !action || ![target respondsToSelector:action]) continue;
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            [target performSelector:action withObject:gr];
+#pragma clang diagnostic pop
+            fired++;
+        }
+    } @catch (__unused NSException *ex) {}
+    return fired;
+}
+
+/// Selectors on `obj`'s class chain that look like they present Now Playing.
+///
+/// Recon, not action. If the gesture path below also comes back empty, this line
+/// names what to call next instead of leaving another round to guesswork.
+static NSString *M27PresentationSelectors(NSObject *obj) {
+    if (!obj) return @"-";
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    Class cls = object_getClass(obj);
+    for (NSInteger depth = 0; cls && depth < 4; depth++, cls = class_getSuperclass(cls)) {
+        unsigned int count = 0;
+        Method *methods = class_copyMethodList(cls, &count);
+        if (!methods) continue;
+        for (unsigned int i = 0; i < count && names.count < 12; i++) {
+            NSString *name = NSStringFromSelector(method_getName(methods[i]));
+            NSString *lower = name.lowercaseString;
+            if ([lower containsString:@"nowplaying"] || [lower containsString:@"expand"] ||
+                [lower containsString:@"handoff"] || [lower containsString:@"presentplayer"]) {
+                if (![names containsObject:name]) [names addObject:name];
+            }
+        }
+        free(methods);
+    }
+    return names.count ? [names componentsJoinedByString:@","] : @"none";
 }
 
 - (void)floatingDockDidTapNowPlaying:(M27FloatingDock *)dock {
@@ -370,21 +478,35 @@ static UIControl *M27FirstControlIn(UIView *view, NSInteger depth) {
     BOOL wasInteractive = mini.userInteractionEnabled;
     mini.userInteractionEnabled = YES;
 
-    // Ask the view to perform its own primary action first.
-    //
-    // Expanding the mini player is a SwiftUI tap, not a UIControl action, so
-    // there is very likely no button to send UIControlEventTouchUpInside to.
-    // What 1.1.32 and 1.1.33 would have found instead is the first UIControl in
-    // the subtree — the play/pause button — which pauses the song rather than
-    // opening the player. accessibilityActivate is the supported way to ask for
-    // "whatever tapping this does", and SwiftUI implements it.
     BOOL activated = NO;
     @try {
-        activated = [miniVC.view accessibilityActivate];
+        activated = [mini accessibilityActivate];
     } @catch (__unused NSException *ex) {}
-
     if (activated) {
         M27WriteStatus(@"nowplaying_activated", @{ @"via": @"accessibility_root" });
+        mini.userInteractionEnabled = wasInteractive;
+        return;
+    }
+
+    // GESTURE FIRST. There is no expand button to press.
+    //
+    // The catalog lists MiniPlayerViewController's controls in full —
+    // playPauseButton, skipButton, reverseButton, shuffleButton, repeatButton,
+    // handoffButton — and not one of them opens the player. Expanding is a
+    // gesture, which is why accessibilityActivate refused and why the control
+    // search could only ever find the wrong thing.
+    NSArray<UIGestureRecognizer *> *taps = M27TapGesturesNear(mini, 3);
+    NSInteger firedTargets = 0;
+    for (UIGestureRecognizer *gr in taps) {
+        firedTargets += M27FireGestureTargets(gr);
+        if (firedTargets > 0) break;
+    }
+
+    if (firedTargets > 0) {
+        M27WriteStatus(@"nowplaying_gesture_fired", @{
+            @"targets": @((long)firedTargets),
+            @"gestures": @((long)taps.count),
+        });
         mini.userInteractionEnabled = wasInteractive;
         return;
     }
@@ -409,30 +531,34 @@ static UIControl *M27FirstControlIn(UIView *view, NSInteger depth) {
         }
     }
 
-    UIControl *control = [target isKindOfClass:UIControl.class]
-                       ? (UIControl *)target
-                       : M27FirstControlIn(mini, 0);
+    UIControl *hitControl = [target isKindOfClass:UIControl.class] ? (UIControl *)target : nil;
+    if (hitControl && !M27ControlIsPlausibleTarget(hitControl, mini)) hitControl = nil;
+    UIControl *control = hitControl ?: M27FirstControlIn(mini, 0, mini);
 
     if (control) {
-        // Last resort, and a suspect one — this is how the song may have been
-        // getting paused instead of expanded. Record exactly what was fired.
         [control sendActionsForControlEvents:UIControlEventTouchUpInside];
         M27WriteStatus(@"nowplaying_sent_action", @{
             @"control": @(object_getClassName(control)),
             @"frame": NSStringFromCGRect(control.frame),
         });
     } else {
-        // Nothing to drive. Record what the mini player actually looks like so
-        // the next build can target it, rather than guessing again.
-        NSInteger taps = 0;
-        for (UIGestureRecognizer *gr in mini.gestureRecognizers) {
-            if ([gr isKindOfClass:UITapGestureRecognizer.class] && gr.isEnabled) taps++;
+        // Everything failed. Say exactly what is here so the next build calls
+        // the right thing instead of guessing a fifth time.
+        NSMutableArray<NSString *> *grDesc = [NSMutableArray array];
+        for (UIGestureRecognizer *gr in taps) {
+            [grDesc addObject:[NSString stringWithFormat:@"%@@%@",
+                               NSStringFromClass(gr.class),
+                               gr.view ? NSStringFromClass(gr.view.class) : @"?"]];
+            if (grDesc.count >= 6) break;
         }
         M27WriteStatus(@"nowplaying_no_control", @{
             @"target": target ? @(object_getClassName(target)) : @"nil",
             @"mini": @(object_getClassName(mini)),
-            @"subviews": @((long)mini.subviews.count),
-            @"tap_gestures": @((long)taps),
+            @"tap_gestures": @((long)taps.count),
+            @"gestures": grDesc.count ? [grDesc componentsJoinedByString:@" "] : @"none",
+            @"mini_sels": M27PresentationSelectors(miniVC),
+            @"parent_sels": M27PresentationSelectors(miniVC.parentViewController),
+            @"tbc_sels": M27PresentationSelectors(self.tabBarController),
         });
     }
 
@@ -499,6 +625,58 @@ static void M27ScrapeMiniPlayer(UIView *view, NSInteger depth,
     }
 }
 
+#pragma mark - Last played track
+
+// iOS 27 does not empty the pill when nothing is playing — open Music fresh and
+// it shows the last song you played, paused. 1.1.37 dropped the pill instead,
+// which fixed the "Loading…" placeholder but replaced it with the wrong
+// behaviour. The placeholder was never the point; showing Music's internal
+// loading text as if it were a song was.
+//
+// So remember the last real track across launches and fall back to it.
+
+static NSString *M27LastTrackPath(void) {
+    return SPKRootedPath(@"/var/mobile/Library/Music27/lasttrack.plist");
+}
+
+static void M27SaveLastTrack(NSString *title, NSString *artist, UIImage *artwork) {
+    if (!title.length) return;
+
+    // syncNowPlaying runs on every MediaRemote notification; only touch the disk
+    // when the track actually changed.
+    static NSString *lastSaved = nil;
+    NSString *key = [NSString stringWithFormat:@"%@\n%@", title, artist ?: @""];
+    if ([key isEqualToString:lastSaved]) return;
+    lastSaved = [key copy];
+
+    @try {
+        NSMutableDictionary *entry = [NSMutableDictionary dictionary];
+        entry[@"title"] = title;
+        if (artist.length) entry[@"artist"] = artist;
+        if (artwork) {
+            NSData *jpeg = UIImageJPEGRepresentation(artwork, 0.8);
+            // Cap it — this is a convenience cache, not an artwork library.
+            if (jpeg.length > 0 && jpeg.length < 512 * 1024) entry[@"artwork"] = jpeg;
+        }
+        NSString *path = M27LastTrackPath();
+        [NSFileManager.defaultManager
+            createDirectoryAtPath:path.stringByDeletingLastPathComponent
+      withIntermediateDirectories:YES attributes:nil error:nil];
+        [entry writeToFile:path atomically:YES];
+    } @catch (__unused NSException *ex) {}
+}
+
+static NSDictionary *M27LoadLastTrack(void) {
+    static NSDictionary *cached = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        @try {
+            cached = [NSDictionary dictionaryWithContentsOfFile:M27LastTrackPath()];
+        } @catch (__unused NSException *ex) {}
+    });
+    return cached;
+}
+
 /// NEVER touch MPMusicPlayerController from here — it is an IPC client for the
 /// Music app and this code runs inside Music. That is what crashed install
 /// until 1.1.26.
@@ -520,7 +698,10 @@ static void M27ScrapeMiniPlayer(UIView *view, NSInteger depth,
         id rate = info[kM27MRPlaybackRate];
         self.dock.playing = [rate respondsToSelector:@selector(doubleValue)]
                           ? ([rate doubleValue] > 0.01) : NO;
-        self.dock.hasTrack = (title.length > 0);
+        if (title.length) {
+            self.dock.hasTrack = YES;
+            M27SaveLastTrack(title, artist, self.dock.artwork);
+        }
         M27WriteStatus(@"sync_applied", @{
             @"src": @"mediaremote",
             @"title": title.length ? @"yes" : @"no",
@@ -549,21 +730,48 @@ static void M27ScrapeMiniPlayer(UIView *view, NSInteger depth,
         // in English, and a title-shaped guess is what put "iPhone" — the AirPlay
         // route label — in the pill back in 1.1.32.
         BOOL scraped = (texts.count > 1);
+        NSString *source = @"scrape";
         if (scraped) {
             self.dock.trackTitle = texts[0];
             self.dock.artistName = texts[1];
             if (image) self.dock.artwork = image;
+            self.dock.hasTrack = YES;
+            M27SaveLastTrack(texts[0], texts[1], image);
         }
-        self.dock.hasTrack = scraped;
+        // Whatever is shown, nothing is actually playing on this path.
+        self.dock.playing = NO;
 
         M27WriteStatus(@"sync_applied", @{
-            @"src": @"scrape",
+            @"src": source,
             @"texts": @((long)texts.count),
-            @"title": texts.count > 0 ? texts[0] : @"-",
+            @"title": texts.count > 0 ? texts[0] : (self.dock.trackTitle ?: @"-"),
             @"artist": texts.count > 1 ? texts[1] : @"-",
-            @"artwork": image ? @"yes" : @"no",
-            @"has_track": scraped ? @"yes" : @"no",
+            @"artwork": self.dock.artwork ? @"yes" : @"no",
+            @"has_track": self.dock.hasTrack ? @"yes" : @"no",
         });
+    }
+
+    // Still nothing to show — from either path, including MediaRemote answering
+    // with a dictionary that has no title. Fall back to the last real track,
+    // paused. This is what iOS 27 does on a fresh launch, and it is why 1.1.37's
+    // "drop the pill" was the wrong correction: the placeholder text was the
+    // bug, not the pill.
+    if (!self.dock.hasTrack) {
+        NSDictionary *last = M27LoadLastTrack();
+        id lastTitle = last[@"title"];
+        if ([lastTitle isKindOfClass:NSString.class] && [lastTitle length]) {
+            self.dock.trackTitle = lastTitle;
+            id lastArtist = last[@"artist"];
+            self.dock.artistName = [lastArtist isKindOfClass:NSString.class] ? lastArtist : nil;
+            id jpeg = last[@"artwork"];
+            if ([jpeg isKindOfClass:NSData.class]) {
+                UIImage *restored = [UIImage imageWithData:(NSData *)jpeg];
+                if (restored) self.dock.artwork = restored;
+            }
+            self.dock.playing = NO;
+            self.dock.hasTrack = YES;
+            M27WriteStatus(@"sync_last_track", @{ @"title": lastTitle });
+        }
     }
 
     [self syncSelection];

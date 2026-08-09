@@ -159,6 +159,8 @@ static void M27FireControl(UIView *control) {
 @property (nonatomic, weak) UIView *stockPlay;
 @property (nonatomic, weak) UIView *stockShuffle;
 @property (nonatomic, weak) UIView *stockDownload;
+@property (nonatomic, strong) NSTimer *mirrorTimer;
+- (BOOL)mirrorDownloadState;
 @end
 
 @implementation M27AlbumControlsView
@@ -270,6 +272,82 @@ static void M27FireControl(UIView *control) {
 - (void)shuffleTapped { M27FireControl(self.stockShuffle); }
 - (void)playTapped { M27FireControl(self.stockPlay); }
 - (void)downloadTapped { M27FireControl(self.stockDownload); }
+
+#pragma mark - Download state
+
+/// The stock control's current glyph, whatever it is.
+///
+/// The download button is not one icon, it is a state machine: download, then a
+/// stop control while the download runs, then done. Music already draws every
+/// one of those. Rather than reimplement that state machine — and get the
+/// transitions wrong, and only in English — copy the glyph Music is currently
+/// showing. Any state Music adds later comes along for free.
+static UIImage *M27CurrentGlyph(UIView *stock, NSInteger depth) {
+    if (!stock || depth > 3) return nil;
+    if ([stock isKindOfClass:UIButton.class]) {
+        UIImage *image = [(UIButton *)stock imageForState:UIControlStateNormal]
+                      ?: ((UIButton *)stock).currentImage;
+        if (image) return image;
+    }
+    if ([stock isKindOfClass:UIImageView.class]) {
+        UIImage *image = ((UIImageView *)stock).image;
+        if (image && image.size.width > 4.0) return image;
+    }
+    for (UIView *sub in stock.subviews) {
+        UIImage *hit = M27CurrentGlyph(sub, depth + 1);
+        if (hit) return hit;
+    }
+    return nil;
+}
+
+/// Returns YES when the glyph changed, so callers can log only real transitions.
+- (BOOL)mirrorDownloadState {
+    UIView *stock = self.stockDownload;
+    if (!stock) return NO;
+
+    UIImage *glyph = M27CurrentGlyph(stock, 0);
+    if (!glyph) return NO;
+
+    // Music's own glyph, drawn in our tint rather than its original colour.
+    UIImage *templated = [glyph imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    UIImage *current = [self.downloadButton imageForState:UIControlStateNormal];
+    if (current == templated) return NO;
+
+    [self.downloadButton setImage:templated forState:UIControlStateNormal];
+    self.downloadButton.accessibilityLabel = stock.accessibilityLabel;
+    return YES;
+}
+
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    [self.mirrorTimer invalidate];
+    self.mirrorTimer = nil;
+    if (!self.window) return;
+
+    // Nothing tells us the download state moved — the stock control changes its
+    // own glyph without laying us out. A one-second poll while this row is on
+    // screen is cheap and stops the moment it leaves the window.
+    __weak typeof(self) weakSelf = self;
+    self.mirrorTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
+                                                       repeats:YES
+                                                         block:^(NSTimer *timer) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf || !strongSelf.window) {
+            [timer invalidate];
+            return;
+        }
+        if ([strongSelf mirrorDownloadState]) {
+            M27WriteStatus(@"album_download_glyph", @{
+                @"label": strongSelf.downloadButton.accessibilityLabel ?: @"-",
+            });
+        }
+    }];
+    [self mirrorDownloadState];
+}
+
+- (void)dealloc {
+    [_mirrorTimer invalidate];
+}
 
 @end
 
@@ -422,6 +500,9 @@ static void M27InstallAlbumControls(UIViewController *vc) {
     row.stockDownload = download;
     row.frame = CGRectMake(minX, top, maxX - minX, kM27PlayHeight);
     [host bringSubviewToFront:row];
+    // Pick up whatever state the stock download control is in right now, rather
+    // than waiting up to a second for the poll.
+    [row mirrorDownloadState];
 
     M27WriteStatus(@"album_row_placed", @{
         @"host": NSStringFromClass(host.class),
@@ -433,15 +514,30 @@ static void M27InstallAlbumControls(UIViewController *vc) {
 
 %hook UIViewController
 
+// "The red buttons do appear for a second sometimes, and then disappear."
+//
+// Of course they do: the install ran on viewDidAppear, and then hopped to the
+// next runloop turn via dispatch_async. By then the stock row has been on screen
+// for several frames. Hiding it is a layout-time job, not an after-the-fact one.
+//
+// viewWillAppear runs before the screen is shown and synchronously, so the stock
+// row is hidden in the same pass that reveals the page. viewDidAppear stays as a
+// backstop for the case where the header was not laid out yet and the lookup
+// found nothing to hide.
+- (void)viewWillAppear:(BOOL)animated {
+    %orig;
+    M27Prefs *prefs = M27Prefs.shared;
+    if (!(prefs.enabled && prefs.glassTabBarEnabled)) return;
+    if (!M27IsAlbumDetailController(self)) return;
+    M27InstallAlbumControls(self);
+}
+
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     M27Prefs *prefs = M27Prefs.shared;
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) return;
     if (!M27IsAlbumDetailController(self)) return;
-    __weak UIViewController *weakSelf = self;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        M27InstallAlbumControls(weakSelf);
-    });
+    M27InstallAlbumControls(self);
 }
 
 - (void)viewDidLayoutSubviews {
