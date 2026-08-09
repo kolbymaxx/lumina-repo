@@ -114,6 +114,45 @@ class PeekSession:
     def nodes(self) -> list[dict[str, Any]]:
         return list(self.dump.get("nodes") or [])
 
+    @property
+    def windows(self) -> list[dict[str, Any]]:
+        """UIWindow snapshot, ascending windowLevel (SwiftPeek 0.4.0+).
+
+        Empty for dumps written by older builds.
+        """
+        return list(self.dump.get("windows") or [])
+
+    def windows_table(self) -> list[str]:
+        """One aligned line per window — the fastest way to eyeball an overlay.
+
+        Reads as: level, frame, flags, class, root view controller.
+        """
+        rows = []
+        for w in self.windows:
+            flags = []
+            if w.get("hidden"):
+                flags.append("HIDDEN")
+            if w.get("is_key"):
+                flags.append("KEY")
+            if w.get("opaque"):
+                flags.append("OPAQUE")
+            alpha = w.get("alpha")
+            if isinstance(alpha, (int, float)) and alpha < 0.999:
+                flags.append(f"alpha={alpha:.2f}")
+            bg = w.get("background")
+            if bg and bg not in ("clear", "nil"):
+                flags.append(f"bg={bg}")
+            rows.append(
+                "level={:<8.1f} {:<22} {:<28} root={:<28} {}".format(
+                    float(w.get("level") or 0),
+                    str(w.get("frame") or "?"),
+                    str(w.get("class") or "?"),
+                    str(w.get("root_vc") or "?"),
+                    " ".join(flags),
+                )
+            )
+        return rows
+
     def summary(self) -> dict[str, Any]:
         nodes = self.nodes
         ann = self.dump.get("offline_annotate") or {}
@@ -122,6 +161,7 @@ class PeekSession:
             "milestone": self.dump.get("milestone"),
             "message": self.dump.get("message"),
             "nodes": len(nodes),
+            "windows": len(self.windows),
             "matched_nodes": ann.get("matched_nodes"),
             "catalog_types": ann.get("catalog_types", len(self.catalog)),
             "with_fields": sum(1 for n in nodes if n.get("offline_fields")),

@@ -1,9 +1,9 @@
 Package: com.kolby.swiftpeek
 Name: SwiftPeek
 Depends: mobilesubstrate, preferenceloader
-Version: 0.3.6
+Version: 0.4.0
 Architecture: iphoneos-arm64
-Description: Read-only SwiftUI inspector — M2 screen_strings proven; Music FOVO field meta disabled after 0.3.5 crash. Debug tooling; not published.
+Description: Read-only SwiftUI + window-tree inspector. 0.4.0 adds per-window level/frame/alpha dumps, pref-driven per-process targets, and an SSH kill switch. Debug tooling; not published.
 Maintainer: ma6x9x
 Author: ma6x9x
 Section: Tweaks

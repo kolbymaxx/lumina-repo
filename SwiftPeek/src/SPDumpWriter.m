@@ -26,7 +26,7 @@ NSDictionary *SPDumpHeader(void) {
         @"process": proc,
         @"timestamp": ts,
         @"tool": @"SwiftPeek",
-        @"tool_version": @"0.3.6",
+        @"tool_version": @"0.4.0",
     };
 }
 
@@ -62,6 +62,7 @@ static NSData *SPStableJSONData(NSDictionary *root, NSError **outError) {
         @"hooked_view_class", @"hooked_controller_class",
         @"hooked", @"nodes", @"message", @"probe", @"launch", @"scan", @"prefs",
         @"hosts_found", @"music_views_found", @"view_class_sample",
+        @"windows",
         @"fields", @"mirror_strings", @"screen_strings"
     ];
     NSMutableString *json = [NSMutableString stringWithString:@"{\n"];
