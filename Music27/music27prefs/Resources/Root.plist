@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.26: Real white-screen fix. Music was crashing while installing the dock — the white/black screen was a dead app, not a rendering bug. The crashing call (MPMusicPlayerController from inside Music) is gone. Turn Floating Glass Dock ON and force-quit Music.</string>
+			<string>1.1.27: The dock renders on iOS 17. Fixes the stray sixth tab (Music reports 6 view controllers but shows 5 tabs). Stock tab bar and mini-player still show behind the glass pills — that is the next thing to tidy.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -94,7 +94,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.26 — no MPMusicPlayerController inside Music. Verify on iOS 17.3 before APT.</string>
+			<string>Music27 1.1.27 — dock renders; tab index mapping fixed. Verify on iOS 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>

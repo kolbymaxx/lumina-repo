@@ -85,7 +85,7 @@ static CGFloat M27FloatGap(void) {
 void M27WriteStatus(NSString *stage, NSDictionary *info) {
     NSMutableDictionary *entry = [info mutableCopy] ?: [NSMutableDictionary dictionary];
     entry[@"stage"] = stage ?: @"?";
-    entry[@"version"] = @"1.1.26";
+    entry[@"version"] = @"1.1.27";
     entry[@"ios"] = UIDevice.currentDevice.systemVersion ?: @"?";
 
     @try {
@@ -235,54 +235,113 @@ static UIViewController *M27FindMiniPlayerViewController(UITabBarController *tbc
 @interface M27DockController : NSObject <M27FloatingDockDelegate>
 @property (nonatomic, weak) UITabBarController *tabBarController;
 @property (nonatomic, weak) M27FloatingDock *dock;
+/// Real viewControllers indices that actually own a tab — Music 17 has one more
+/// controller than tabs, so dock index N is not viewControllers[N].
+- (NSArray<NSNumber *> *)visibleTabIndexes;
+/// Push the tab bar controller's selection into the dock, index-mapped.
+- (void)syncSelection;
+- (void)syncNowPlaying;
 @end
 
 @implementation M27DockController
 
+/// Real `viewControllers` indices that actually have a tab.
+///
+/// Music on iOS 17 reports SIX view controllers but shows FIVE tabs — the log
+/// line `install_begin tabs=6` next to a dock rendering a stray "Tab 5" is that
+/// extra controller, which carries no tab bar item. Indices must therefore be
+/// mapped: dock index N is not necessarily viewControllers[N].
+- (NSArray<NSNumber *> *)visibleTabIndexes {
+    NSMutableArray<NSNumber *> *out = [NSMutableArray array];
+    UITabBarController *tbc = self.tabBarController;
+    NSArray<__kindof UIViewController *> *vcs = tbc.viewControllers;
+    NSArray<UITabBarItem *> *items = tbc.tabBar.items;
+    for (NSInteger i = 0; i < (NSInteger)vcs.count; i++) {
+        UITabBarItem *item = vcs[i].tabBarItem;
+        if (!item) continue;
+        // Authoritative when available: the bar itself knows what it displays.
+        if (items.count > 0 && ![items containsObject:item]) continue;
+        if (item.title.length == 0 && item.image == nil) continue;
+        [out addObject:@(i)];
+    }
+    // Never leave the dock empty just because the matching heuristics failed.
+    if (out.count == 0) {
+        for (NSInteger i = 0; i < (NSInteger)vcs.count; i++) [out addObject:@(i)];
+    }
+    return out;
+}
+
+- (NSInteger)realIndexForDockIndex:(NSInteger)dockIndex {
+    NSArray<NSNumber *> *visible = [self visibleTabIndexes];
+    if (dockIndex < 0 || dockIndex >= (NSInteger)visible.count) return NSNotFound;
+    return visible[dockIndex].integerValue;
+}
+
+- (NSInteger)dockIndexForRealIndex:(NSInteger)realIndex {
+    NSArray<NSNumber *> *visible = [self visibleTabIndexes];
+    NSInteger at = (NSInteger)[visible indexOfObject:@(realIndex)];
+    return at == NSNotFound ? 0 : at;
+}
+
+/// Pushes the tab bar controller's current selection into the dock, mapped.
+- (void)syncSelection {
+    self.dock.selectedTabIndex =
+        [self dockIndexForRealIndex:(NSInteger)self.tabBarController.selectedIndex];
+}
+
+- (UIViewController *)viewControllerForDockIndex:(NSInteger)index {
+    NSInteger real = [self realIndexForDockIndex:index];
+    NSArray<__kindof UIViewController *> *vcs = self.tabBarController.viewControllers;
+    if (real == NSNotFound || real >= (NSInteger)vcs.count) return nil;
+    return vcs[real];
+}
+
 - (NSInteger)numberOfTabsForFloatingDock:(M27FloatingDock *)dock {
     (void)dock;
-    return (NSInteger)self.tabBarController.viewControllers.count;
+    return (NSInteger)[self visibleTabIndexes].count;
 }
 
 - (NSString *)floatingDock:(M27FloatingDock *)dock titleForTabIndex:(NSInteger)index {
     (void)dock;
-    NSArray<__kindof UIViewController *> *vcs = self.tabBarController.viewControllers;
-    if (index < 0 || index >= (NSInteger)vcs.count) return nil;
-    return vcs[index].tabBarItem.title;
+    return [self viewControllerForDockIndex:index].tabBarItem.title;
 }
 
 - (UIImage *)floatingDock:(M27FloatingDock *)dock iconForTabIndex:(NSInteger)index selected:(BOOL)selected {
     (void)dock;
-    NSArray<__kindof UIViewController *> *vcs = self.tabBarController.viewControllers;
-    if (index < 0 || index >= (NSInteger)vcs.count) return nil;
-    UITabBarItem *item = vcs[index].tabBarItem;
+    UITabBarItem *item = [self viewControllerForDockIndex:index].tabBarItem;
+    if (!item) return nil;
     return selected && item.selectedImage ? item.selectedImage : item.image;
 }
 
 - (void)floatingDock:(M27FloatingDock *)dock didSelectTabIndex:(NSInteger)index {
     (void)dock;
-    if (index < 0 || index >= (NSInteger)self.tabBarController.viewControllers.count) return;
-    self.tabBarController.selectedIndex = (NSUInteger)index;
+    NSInteger real = [self realIndexForDockIndex:index];
+    if (real == NSNotFound) return;
+    self.tabBarController.selectedIndex = (NSUInteger)real;
 }
 
 - (void)floatingDockDidTapSearch:(M27FloatingDock *)dock {
     (void)dock;
-    NSInteger searchIndex = NSNotFound;
+    NSArray<NSNumber *> *visible = [self visibleTabIndexes];
     NSArray<__kindof UIViewController *> *vcs = self.tabBarController.viewControllers;
-    for (NSInteger i = 0; i < (NSInteger)vcs.count; i++) {
-        NSString *title = vcs[i].tabBarItem.title.lowercaseString ?: @"";
+    NSInteger dockIndex = NSNotFound;
+    for (NSInteger i = 0; i < (NSInteger)visible.count; i++) {
+        NSInteger real = visible[i].integerValue;
+        if (real >= (NSInteger)vcs.count) continue;
+        NSString *title = vcs[real].tabBarItem.title.lowercaseString ?: @"";
         if ([title containsString:@"search"]) {
-            searchIndex = i;
+            dockIndex = i;
             break;
         }
     }
-    if (searchIndex == NSNotFound && vcs.count > 0) {
-        searchIndex = (NSInteger)vcs.count - 1;
+    if (dockIndex == NSNotFound && visible.count > 0) {
+        dockIndex = (NSInteger)visible.count - 1;
     }
-    if (searchIndex != NSNotFound) {
-        self.tabBarController.selectedIndex = (NSUInteger)searchIndex;
-        self.dock.selectedTabIndex = searchIndex;
-    }
+    if (dockIndex == NSNotFound) return;
+    NSInteger real = [self realIndexForDockIndex:dockIndex];
+    if (real == NSNotFound) return;
+    self.tabBarController.selectedIndex = (NSUInteger)real;
+    self.dock.selectedTabIndex = dockIndex;
 }
 
 - (void)floatingDockDidTapPlayPause:(M27FloatingDock *)dock {
@@ -347,7 +406,7 @@ static UIViewController *M27FindMiniPlayerViewController(UITabBarController *tbc
         self.dock.playing = [rate respondsToSelector:@selector(doubleValue)]
                           ? ([rate doubleValue] > 0.01) : NO;
 
-        self.dock.selectedTabIndex = (NSInteger)self.tabBarController.selectedIndex;
+        [self syncSelection];
         [self.dock refreshChrome];
     } @catch (NSException *ex) {
         M27WriteStatus(@"sync_exception", @{ @"reason": ex.reason ?: @"?" });
@@ -590,7 +649,7 @@ static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc, CGR
         @"frame": NSStringFromCGRect(overlay.frame),
         @"level": @((double)overlay.windowLevel),
     });
-    NSLog(@"[Music27 1.1.26] overlay window created level=%.1f frame=%@ iOS=%ld",
+    NSLog(@"[Music27 1.1.27] overlay window created level=%.1f frame=%@ iOS=%ld",
           overlay.windowLevel, NSStringFromCGRect(overlay.frame), (long)M27SystemMajorVersion());
     return overlay;
 }
@@ -606,7 +665,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat screenW = CGRectGetWidth(screen);
         CGFloat screenH = CGRectGetHeight(screen);
         if (screenW < 10 || screenH < 10) {
-            NSLog(@"[Music27 1.1.26] layout skip: empty screen bounds");
+            NSLog(@"[Music27 1.1.27] layout skip: empty screen bounds");
             M27WriteStatus(@"layout_skip_bounds", @{});
             return;
         }
@@ -614,7 +673,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat height = dock.preferredHeight;
         if (height < 10 || height > 160.0) {
             height = 52.0 + 8.0 + 58.0;
-            NSLog(@"[Music27 1.1.26] preferredHeight out of range → fallback %.0f", height);
+            NSLog(@"[Music27 1.1.27] preferredHeight out of range → fallback %.0f", height);
         }
 
         // Safe-area read before the window exists, so the strip can be created at
@@ -644,7 +703,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
 
         UIView *host = overlay.rootViewController.view;
         if (!host) {
-            NSLog(@"[Music27 1.1.26] layout skip: no host view");
+            NSLog(@"[Music27 1.1.27] layout skip: no host view");
             M27WriteStatus(@"layout_skip_no_host", @{});
             return;
         }
@@ -674,7 +733,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         [dock setNeedsLayout];
         [dock layoutIfNeeded];
 
-        NSLog(@"[Music27 1.1.26] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
+        NSLog(@"[Music27 1.1.27] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
               @"dockH=%.0f safeB=%.0f gap=%.0f level=%.1f hidden=%d",
               (long)M27SystemMajorVersion(), screenW, screenH,
               NSStringFromCGRect(stripFrame), y, height, safeBottom,
@@ -729,19 +788,19 @@ static void M27RemoveDock(UITabBarController *tbc) {
 
 static void M27InstallDockIfNeeded(UITabBarController *tbc) {
     if (!tbc) {
-        NSLog(@"[Music27 1.1.26] install skip: nil tbc");
+        NSLog(@"[Music27 1.1.27] install skip: nil tbc");
         M27WriteStatus(@"install_skip_nil_tbc", @{});
         return;
     }
     if (!tbc.isViewLoaded) {
-        NSLog(@"[Music27 1.1.26] install skip: tbc not loaded");
+        NSLog(@"[Music27 1.1.27] install skip: tbc not loaded");
         M27WriteStatus(@"install_skip_tbc_unloaded", @{});
         return;
     }
     M27Prefs *prefs = M27Prefs.shared;
 
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) {
-        NSLog(@"[Music27 1.1.26] install skip: prefs en=%d dock=%d",
+        NSLog(@"[Music27 1.1.27] install skip: prefs en=%d dock=%d",
               (int)prefs.enabled, (int)prefs.glassTabBarEnabled);
         M27WriteStatus(@"install_skip_prefs", @{
             @"enabled": @(prefs.enabled),
@@ -767,7 +826,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             objc_setAssociatedObject(tbc, kM27DockViewKey, dock, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [dock reloadTabs];
             [dock setMode:M27DockModeExpanded animated:NO];
-            NSLog(@"[Music27 1.1.26] dock view created");
+            NSLog(@"[Music27 1.1.27] dock view created");
             M27WriteStatus(@"dock_created", @{ @"h": @((double)dock.preferredHeight) });
         }
         // One breadcrumb per step: 1.1.25 narrowed the crash to this span but
@@ -778,14 +837,17 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
         [dock reloadTabs];
         M27WriteStatus(@"pre_setmode", @{});
         [dock setMode:M27DockModeExpanded animated:NO];
-        M27WriteStatus(@"pre_selected", @{ @"idx": @((long)tbc.selectedIndex) });
-        dock.selectedTabIndex = (NSInteger)tbc.selectedIndex;
+        M27WriteStatus(@"pre_selected", @{
+            @"idx": @((long)tbc.selectedIndex),
+            @"visible": @((long)[controller visibleTabIndexes].count),
+        });
+        [controller syncSelection];
         M27WriteStatus(@"pre_sync", @{});
         [controller syncNowPlaying];
         M27WriteStatus(@"pre_layout", @{});
         M27LayoutDock(tbc, dock);
         M27DockOverlayWindow *ov = objc_getAssociatedObject(tbc, kM27DockWindowKey);
-        NSLog(@"[Music27 1.1.26] install OK dock=%p overlay=%p", dock, ov);
+        NSLog(@"[Music27 1.1.27] install OK dock=%p overlay=%p", dock, ov);
         M27WriteStatus(@"install_ok", @{
             @"overlay": ov ? @"yes" : @"no",
             @"overlay_level": @(ov ? (double)ov.windowLevel : -1.0),
@@ -798,7 +860,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             @"tabs": @((long)tbc.viewControllers.count),
         });
     } @catch (NSException *ex) {
-        NSLog(@"[Music27 1.1.26] install exception: %@", ex);
+        NSLog(@"[Music27 1.1.27] install exception: %@", ex);
         M27WriteStatus(@"install_exception", @{ @"reason": ex.reason ?: @"?" });
         M27RemoveDock(tbc);
     }
@@ -894,7 +956,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     %orig;
     __weak UITabBarController *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.26] TBC viewDidAppear");
+        NSLog(@"[Music27 1.1.27] TBC viewDidAppear");
         M27InstallDockIfNeeded(weakSelf);
     });
     // One delayed retry — Music finishes chrome layout after first appear.
@@ -918,14 +980,14 @@ void M27ApplyChromeForCurrentPrefs(void) {
 
 - (void)setSelectedIndex:(NSUInteger)selectedIndex {
     %orig;
-    M27FloatingDock *dock = M27DockForTabBarController(self);
-    if (dock) dock.selectedTabIndex = (NSInteger)selectedIndex;
+    if (!M27DockForTabBarController(self)) return;
+    [objc_getAssociatedObject(self, kM27DockControllerKey) syncSelection];
 }
 
 - (void)setSelectedViewController:(UIViewController *)selectedViewController {
     %orig;
-    M27FloatingDock *dock = M27DockForTabBarController(self);
-    if (dock) dock.selectedTabIndex = (NSInteger)self.selectedIndex;
+    if (!M27DockForTabBarController(self)) return;
+    [objc_getAssociatedObject(self, kM27DockControllerKey) syncSelection];
 }
 
 %end
@@ -955,7 +1017,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     if (!tbc) return;
     __weak UITabBarController *weakTBC = tbc;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.26] UIWindow makeKeyAndVisible → install");
+        NSLog(@"[Music27 1.1.27] UIWindow makeKeyAndVisible → install");
         M27InstallDockIfNeeded(weakTBC);
     });
 }

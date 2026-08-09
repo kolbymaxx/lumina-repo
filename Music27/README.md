@@ -46,7 +46,8 @@ Settings live under **Settings → Music27**.
 | **1.1.23** | Diagnostics only: `status.log` / `status.json` so the install path is readable from Filza. SwiftPeek 0.4.1 confirmed Music's own window is at level 0 |
 | **1.1.24** | **White-screen fix:** overlay window is a **bottom strip**, never full-screen, created at its real size (no 1pt seed). On device with the dock ON, `status.log` showed `loaded` and then **nothing** — no `install_ok`, no exception, no `layout` |
 | **1.1.25** | Synchronous + `fsync`'d logging with breadcrumbs. Caught it: three launches, all `install_begin` → `dock_created` → **process gone**, never reaching `layout_begin` |
-| **1.1.26** | **Real fix.** Music was *crashing* during install; the white/black screen was a dead app, not a compositing bug. Cause: `MPMusicPlayerController.systemMusicPlayer` in `syncNowPlaying` — an IPC client for Music, called from inside Music. Removed everywhere; `playbackRate` from `nowPlayingInfo` gives the same answer with no IPC |
+| **1.1.26** | **Real fix.** Music was *crashing* during install; the white/black screen was a dead app, not a compositing bug. Cause: `MPMusicPlayerController.systemMusicPlayer` in `syncNowPlaying` — an IPC client for Music, called from inside Music. Removed everywhere. **Dock renders on 17.3 for the first time** |
+| **1.1.27** | Stray sixth tab: Music reports **6 view controllers but shows 5 tabs**, and the extra one rendered as "Tab 5". Dock indices are now mapped to the controllers that actually own a tab bar item |
 
 Prefs are read preferring `/var/jb/.../com.music27.tweak.plist` (Dopamine), then jbroot (RootHide), then rootful.
 
@@ -67,47 +68,52 @@ Architecture: `iphoneos-arm64` (rootless, files under `/var/jb`).
 ## Verify on iOS 17 (Dopamine rootless)
 
 1. Install the CI rootless `.deb` for this version; respring.
-2. **Settings → Music27** footer must say **1.1.26**. This build does **not** force Floating Glass Dock OFF — it keeps whatever you last set, so if you turned it off to escape the 1.1.21 white screen, turn it back on.
+2. **Settings → Music27** footer must say **1.1.27**. This build does **not** force Floating Glass Dock OFF — it keeps whatever you last set, so if you turned it off to escape the 1.1.21 white screen, turn it back on.
 3. Make sure Enable Music27 and Floating Glass Dock are both **ON**, then **force-quit Music** and relaunch.
-4. Expect Music to survive with the dock ON. `status.log` should now run past `dock_created` through `pre_sync` / `sync_done` / `pre_layout` / `layout_begin` to `layout` and `install_ok`. Whatever happens, send the log — the last line before it stops names the faulting call.
-5. `status.log` is the primary diagnostic and needs no Mac. The same lines also go to Console under the filter `Music27 1.1.26` if you have one attached.
+4. Expect the glass pills to render, and `status.log` to reach `install_ok` with `overlay=yes`. Scrolling down should collapse the dock and shrink the strip.
+5. `status.log` is the primary diagnostic and needs no Mac. The same lines also go to Console under the filter `Music27 1.1.27` if you have one attached.
 
 ### The white screen was a crash, not a rendering bug
 
-1.1.25's synchronous log, three consecutive launches on 17.3 with the dock ON:
+1.1.25's synchronous log caught it — three launches, all ending the same way:
 
 ```
-14:14:12  stage=install_begin  tabs=5
-14:14:12  stage=dock_created   h=118
-14:14:33  stage=loaded                   <- process restarted
-14:14:36  stage=install_begin  tabs=6
-14:14:36  stage=dock_created   h=118
-14:15:11  stage=loaded                   <- restarted again
+install_begin tabs=5 → dock_created h=118 → (process gone)
 ```
 
-`layout_begin` never fires, so `M27LayoutDock` is never entered and **the overlay
-window is never created**. Every window theory from 1.1.19 onward — cover plate,
+`layout_begin` never fired, so `M27LayoutDock` was never entered and the overlay
+window was never created. Every window theory from 1.1.19 onward — cover plate,
 window level, Music's own level, window size — was aimed at code that does not
-run. A crashed app draws a blank white window (black in dark mode), which is what
-"white screen" always was.
+run. A crashed app draws a blank white window (black in dark mode); that is all
+"white screen" ever was.
 
-The only statement in the crashing span that had not already executed
-successfully before `dock_created` was `syncNowPlaying`, which called
-`MPMusicPlayerController.systemMusicPlayer`. That class is an IPC client for the
-Music app, and this code runs *inside* Music. It is now gone from the whole
-tweak; `playbackRate` from `nowPlayingInfo` gives the same answer with no IPC.
+The cause was `MPMusicPlayerController.systemMusicPlayer` in `syncNowPlaying`.
+That class is an IPC client for the Music app, and this code runs *inside* Music.
 
-**Do not reintroduce `MPMusicPlayerController` anywhere in Music27.** The
-MediaRemote path handles play/pause and skip; if MediaRemote is unavailable the
-dock now does nothing rather than reach for the IPC client.
+**Do not reintroduce `MPMusicPlayerController` anywhere in Music27.** MediaRemote
+handles play/pause and skip; without it the dock no-ops rather than reaching for
+the IPC client. `playbackRate` from `nowPlayingInfo` supplies play state with no
+IPC.
 
-Per-statement breadcrumbs (`pre_reload`, `pre_setmode`, `pre_selected`,
-`pre_sync`, `pre_layout`, `sync_begin` … `sync_done`) remain in place, so if the
-crash survives this the next log names the exact faulting call.
+With that gone, 1.1.26 completes the whole path on iPhone13,1 / 17.3:
 
-Window shape and level are unproven, not fixed — the code that sets them has
-never run on 17.3. The current bottom-strip-at-`Normal + 2` configuration is a
-reasonable default carried over from 1.1.24, nothing more.
+```
+install_begin tabs=6 → dock_created → pre_reload → pre_setmode
+→ pre_selected idx=3 → pre_sync → sync_begin → sync_info keys=0 → sync_done
+→ pre_layout → layout_begin
+→ overlay_created frame={{0,646},{375,166}} level=2
+→ layout dock_frame={{0,14},{375,118}} full_screen=0 strip={{0,646},{375,166}}
+→ install_ok overlay=yes overlay_hidden=0 dock_alpha=1 dock_superview=yes
+```
+
+Scroll-collapse works too — the strip shrinks to `{{0,700},{375,112}}` with a
+64pt dock and expands back.
+
+**A note on the window configuration.** Bottom-strip at `Normal + 2` is what
+shipped and it renders, but it was chosen while chasing a crash that had nothing
+to do with windows. It is a working default, not a validated design — the
+full-screen and `StatusBar - 1` variants were never actually disproven, because
+none of that code ever executed.
 
 ### On-device diagnostics (1.1.23+)
 
@@ -132,7 +138,11 @@ Readable in Filza. Force-quit Music, relaunch, then read `status.log`:
 `full_screen=1` on a `layout` line means the strip cap failed and a white screen
 is expected — that is the regression to watch for.
 
-Known in 1.1.26, to tighten next: the strip sits over the bottom of full-screen Now Playing and any presented sheet. It stays passthrough — only the pills take taps — but it is visible there. Hiding the dock while Music presents a modal is the follow-up, along with sizing the pills for the 17 layout and suppressing the stock mini-player peek-through.
+Known in 1.1.27, to tighten next:
+
+- **Stock chrome shows through.** Music's own tab bar and mini-player are still drawn underneath the glass pills, so the bottom of the screen has two of everything. Hiding them is the next job — and worth revisiting from scratch, since the 1.1.17/1.1.18 "cover plate" approach was blamed for white screens it did not cause.
+- Pill sizing and insets are still tuned for the 16 layout, not 17.
+- The strip sits over the bottom of full-screen Now Playing and presented sheets. It stays passthrough, but it is visible there.
 
 ## Build
 
