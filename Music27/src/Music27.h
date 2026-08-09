@@ -99,7 +99,7 @@ void M27ApplyChromeForCurrentPrefs(void);
 
 /// Tweak version, in one place. Bump here and in Music27/control together.
 /// Usable inside a literal: NSLog(@"[Music27 " M27_VERSION "] ...")
-#define M27_VERSION "1.1.34"
+#define M27_VERSION "1.1.35"
 #define M27VersionString @M27_VERSION
 
 /// Jailbreak root prefix ("" / "/var/jb" / RootHide jbroot).

@@ -334,19 +334,50 @@ static void M27InstallAlbumControls(UIViewController *vc) {
     UIView *download = M27FindDownloadControl(vc);
     NSString *downloadWhy = M27HideViewKeepLayout(download);
 
+    // THE SYMBOLBUTTON IS ONLY THE CAPSULE BACKGROUND.
+    //
+    // 1.1.33's readback settled this. On device, with the stock glyphs plainly
+    // still on screen, status.log said:
+    //
+    //   play_hidden=yes play_opacity=0 play_alpha=0
+    //
+    // The hide stuck, and nothing reset it — so the earlier "something
+    // re-renders and undoes it" theory was wrong. The photos say what actually
+    // happens: before the tweak these are grey capsules with red content, and
+    // after, the grey capsules vanish while the red ▶ and "Shuffle" stay. The
+    // MusicCoreUI.SymbolButton we hide is the capsule; SwiftUI draws the glyph
+    // and label as siblings, outside that view's layer subtree, so hiding the
+    // button can never take them with it.
+    //
+    // So hide the row container — the view that holds both capsules and their
+    // content — and only when it hugs the pair tightly enough to be that row and
+    // nothing more. A loose match here would blank part of the album header.
+    UIView *stockRow = nil;
+    NSString *stockRowWhy = @"no_container";
+    UIView *sharedParent = play.superview;
+    if (sharedParent && sharedParent == shuffle.superview) {
+        CGRect pair = CGRectUnion(play.frame, shuffle.frame);
+        CGSize slack = CGSizeMake(CGRectGetWidth(sharedParent.bounds) - CGRectGetWidth(pair),
+                                  CGRectGetHeight(sharedParent.bounds) - CGRectGetHeight(pair));
+        if (slack.width <= 24.0 && slack.height <= 24.0) {
+            stockRow = sharedParent;
+            stockRowWhy = M27HideViewKeepLayout(stockRow) ?: @"yes";
+        } else {
+            stockRowWhy = [NSString stringWithFormat:@"slack_%.0fx%.0f", slack.width, slack.height];
+        }
+    }
+
     M27WriteStatus(@"album_controls", @{
         @"vc": NSStringFromClass(vc.class),
         @"play": M27DescribeControl(play),
         @"play_is_control": [play isKindOfClass:UIControl.class] ? @"yes" : @"no",
         @"play_hidden": playWhy ?: @"yes",
-        // Readback: the hide reports success but the stock glyphs still show,
-        // so record what actually stuck and what the parent is.
         @"play_opacity": @((double)play.layer.opacity),
-        @"play_alpha": @((double)play.alpha),
-        @"play_parent": M27DescribeControl(play.superview),
         @"shuffle": M27DescribeControl(shuffle),
         @"shuffle_is_control": [shuffle isKindOfClass:UIControl.class] ? @"yes" : @"no",
         @"shuffle_hidden": shuffleWhy ?: @"yes",
+        @"stock_row": M27DescribeControl(stockRow),
+        @"stock_row_hidden": stockRowWhy,
         @"download": M27DescribeControl(download),
         @"download_hidden": downloadWhy ?: @"yes",
     });
@@ -358,7 +389,13 @@ static void M27InstallAlbumControls(UIViewController *vc) {
     // it. As a sibling of the stock buttons it scrolls with them and stays put
     // relative to the artwork, which is what the album page already looked like
     // by accident because its header happened not to scroll far.
-    UIView *host = play.superview ?: vc.view;
+    //
+    // When the row container is the thing we hid, our row has to be its SIBLING.
+    // `layer.opacity = 0` applies to the whole layer subtree, so a child of the
+    // hidden container would be invisible too — the 1.1.28 alpha mistake in a
+    // different costume.
+    UIView *host = stockRow ? (stockRow.superview ?: vc.view)
+                            : (play.superview ?: vc.view);
     UIView *existingInHost = [host viewWithTag:kM27AlbumControlsTag];
     if (existing && existing != existingInHost) [existing removeFromSuperview];
 
@@ -390,6 +427,7 @@ static void M27InstallAlbumControls(UIViewController *vc) {
         @"host": NSStringFromClass(host.class),
         @"row": NSStringFromCGRect(row.frame),
         @"span": NSStringFromCGRect(span),
+        @"sibling_of_hidden_row": stockRow ? @"yes" : @"no",
     });
 }
 

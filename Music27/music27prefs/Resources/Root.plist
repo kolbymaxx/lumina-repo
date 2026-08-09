@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.34: internal only. The jailbreak-root resolver, prefs reader, status log and overlay window now come from SPKit, the shared runtime behind SwiftPeek and the 27-series tweaks. Behaviour is unchanged from 1.1.33 — if anything looks different, that is a bug worth reporting.</string>
+			<string>1.1.35: the stock Play/Shuffle glyphs no longer show through the glass album row — the view being hidden was only the grey capsule behind them, so the whole row container is hidden now. Tapping the mini pill asks the stock player to perform its own action instead of firing the first button it finds, which was probably pausing the song rather than opening Now Playing.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -108,7 +108,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.34 — SPKit extraction, no behaviour change intended. Verify on iOS 17.3 before APT.</string>
+			<string>Music27 1.1.35 — album row covers the stock buttons, mini pill tap reworked. Verify on iOS 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>

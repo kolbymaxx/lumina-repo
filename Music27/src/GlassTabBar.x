@@ -350,6 +350,13 @@ static UIControl *M27FirstControlIn(UIView *view, NSInteger depth) {
 
 - (void)floatingDockDidTapNowPlaying:(M27FloatingDock *)dock {
     (void)dock;
+    // 1.1.33 wrote NO nowplaying_* line at all, and that was read as "the tap
+    // never arrives". It could not answer that: the success branch below logged
+    // nothing, so a tap that found a control and fired it looked exactly like a
+    // tap that never happened. Same silent-branch mistake as the 1.1.23 async
+    // logger. Entry and every exit are recorded now.
+    M27WriteStatus(@"nowplaying_begin", @{});
+
     UIViewController *miniVC = M27FindMiniPlayerViewController(self.tabBarController);
     UIView *mini = miniVC.view;
     if (!mini) {
@@ -363,18 +370,57 @@ static UIControl *M27FirstControlIn(UIView *view, NSInteger depth) {
     BOOL wasInteractive = mini.userInteractionEnabled;
     mini.userInteractionEnabled = YES;
 
+    // Ask the view to perform its own primary action first.
+    //
+    // Expanding the mini player is a SwiftUI tap, not a UIControl action, so
+    // there is very likely no button to send UIControlEventTouchUpInside to.
+    // What 1.1.32 and 1.1.33 would have found instead is the first UIControl in
+    // the subtree — the play/pause button — which pauses the song rather than
+    // opening the player. accessibilityActivate is the supported way to ask for
+    // "whatever tapping this does", and SwiftUI implements it.
+    BOOL activated = NO;
+    @try {
+        activated = [miniVC.view accessibilityActivate];
+    } @catch (__unused NSException *ex) {}
+
+    if (activated) {
+        M27WriteStatus(@"nowplaying_activated", @{ @"via": @"accessibility_root" });
+        mini.userInteractionEnabled = wasInteractive;
+        return;
+    }
+
     UIView *target = nil;
     @try {
         CGPoint point = CGPointMake(CGRectGetMidX(mini.bounds), CGRectGetMidY(mini.bounds));
         target = [mini hitTest:point withEvent:nil];
     } @catch (__unused NSException *ex) {}
 
+    if (target && target != mini) {
+        @try {
+            activated = [target accessibilityActivate];
+        } @catch (__unused NSException *ex) {}
+        if (activated) {
+            M27WriteStatus(@"nowplaying_activated", @{
+                @"via": @"accessibility_hit",
+                @"target": @(object_getClassName(target)),
+            });
+            mini.userInteractionEnabled = wasInteractive;
+            return;
+        }
+    }
+
     UIControl *control = [target isKindOfClass:UIControl.class]
                        ? (UIControl *)target
                        : M27FirstControlIn(mini, 0);
 
     if (control) {
+        // Last resort, and a suspect one — this is how the song may have been
+        // getting paused instead of expanded. Record exactly what was fired.
         [control sendActionsForControlEvents:UIControlEventTouchUpInside];
+        M27WriteStatus(@"nowplaying_sent_action", @{
+            @"control": @(object_getClassName(control)),
+            @"frame": NSStringFromCGRect(control.frame),
+        });
     } else {
         // Nothing to drive. Record what the mini player actually looks like so
         // the next build can target it, rather than guessing again.
