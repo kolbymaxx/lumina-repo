@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.36
+Version: 1.1.37
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.36: adds a restyle of Music’s full-screen player toward the iOS 27 look, behind a new switch that is off by default.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.37: the dock no longer shows “Not Playing” / “Loading…” scraped out of Music’s own mini player — with nothing playing the pill is dropped and the dock is just the tab row, as on iOS 27.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks

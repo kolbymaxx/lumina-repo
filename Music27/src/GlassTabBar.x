@@ -520,25 +520,49 @@ static void M27ScrapeMiniPlayer(UIView *view, NSInteger depth,
         id rate = info[kM27MRPlaybackRate];
         self.dock.playing = [rate respondsToSelector:@selector(doubleValue)]
                           ? ([rate doubleValue] > 0.01) : NO;
+        self.dock.hasTrack = (title.length > 0);
         M27WriteStatus(@"sync_applied", @{
             @"src": @"mediaremote",
             @"title": title.length ? @"yes" : @"no",
             @"artwork": self.dock.artwork ? @"yes" : @"no",
+            @"has_track": self.dock.hasTrack ? @"yes" : @"no",
         });
     } else {
         UIViewController *miniVC = M27FindMiniPlayerViewController(self.tabBarController);
         NSMutableArray<NSString *> *texts = [NSMutableArray array];
         UIImage *image = nil;
         if (miniVC.isViewLoaded) M27ScrapeMiniPlayer(miniVC.view, 0, texts, &image);
-        if (texts.count > 0) self.dock.trackTitle = texts[0];
-        if (texts.count > 1) self.dock.artistName = texts[1];
-        if (image) self.dock.artwork = image;
+
+        // ONE LABEL MEANS MUSIC'S OWN PLACEHOLDER, NOT A TRACK.
+        //
+        // 1.1.33's log named the "weird loading thing" exactly:
+        //
+        //   src=scrape texts=1 title=Not Playing
+        //   src=scrape texts=1 title=Loading…
+        //
+        // Those are Music's placeholder strings, scraped out of the stock mini
+        // player and rendered in our pill as though they were a song. Every real
+        // track in that log arrived through MediaRemote with a title; every
+        // placeholder was a scrape with a single label and no artist.
+        //
+        // So require both lines. Matching the strings themselves would only work
+        // in English, and a title-shaped guess is what put "iPhone" — the AirPlay
+        // route label — in the pill back in 1.1.32.
+        BOOL scraped = (texts.count > 1);
+        if (scraped) {
+            self.dock.trackTitle = texts[0];
+            self.dock.artistName = texts[1];
+            if (image) self.dock.artwork = image;
+        }
+        self.dock.hasTrack = scraped;
+
         M27WriteStatus(@"sync_applied", @{
             @"src": @"scrape",
             @"texts": @((long)texts.count),
             @"title": texts.count > 0 ? texts[0] : @"-",
             @"artist": texts.count > 1 ? texts[1] : @"-",
             @"artwork": image ? @"yes" : @"no",
+            @"has_track": scraped ? @"yes" : @"no",
         });
     }
 

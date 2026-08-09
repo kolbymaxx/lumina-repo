@@ -228,6 +228,10 @@ static const CGFloat kM27CircleButton = 44.0;
 #pragma mark - Public
 
 - (CGFloat)preferredHeight {
+    if (!self.hasTrack) {
+        // Tab row only — no pill, so no pill height and no gap.
+        return kM27ExpandedTabHeight;
+    }
     if (self.mode == M27DockModeCollapsed) {
         return kM27CollapsedHeight;
     }
@@ -252,6 +256,9 @@ static const CGFloat kM27CircleButton = 44.0;
 
 - (void)collapseFromScroll {
     if (self.mode == M27DockModeCollapsed) return;
+    // Collapsing trades the tab row for a now-playing pill. With nothing
+    // playing that trade leaves an empty pill and no tabs, so refuse it.
+    if (!self.hasTrack) return;
     [self setMode:M27DockModeCollapsed animated:YES];
 }
 
@@ -273,9 +280,30 @@ static const CGFloat kM27CircleButton = 44.0;
 
 - (void)setTrackTitle:(NSString *)trackTitle {
     _trackTitle = [trackTitle copy];
-    NSString *text = trackTitle.length ? trackTitle : @"Not Playing";
-    self.collapsedTitle.text = text;
-    self.expandedTitle.text = text;
+    // No "Not Playing" fallback any more. When nothing is playing the pill is
+    // removed entirely (see setHasTrack:), so a placeholder string here would
+    // only ever be visible for the frame before that happens.
+    self.collapsedTitle.text = trackTitle ?: @"";
+    self.expandedTitle.text = trackTitle ?: @"";
+}
+
+- (void)setHasTrack:(BOOL)hasTrack {
+    if (_hasTrack == hasTrack) return;
+    _hasTrack = hasTrack;
+
+    // Collapsing exists to make room for the now-playing pill. With no track
+    // there is nothing to collapse to, so stay expanded — otherwise a scroll
+    // would shrink the dock to a pill showing nothing.
+    if (!hasTrack && self.mode == M27DockModeCollapsed) {
+        [self setMode:M27DockModeExpanded animated:YES];
+    }
+
+    [self setNeedsLayout];
+    // preferredHeight just changed, so the overlay strip has to be resized. The
+    // mode delegate is the existing "my height moved" signal.
+    if ([self.delegate respondsToSelector:@selector(floatingDockDidChangeMode:)]) {
+        [self.delegate floatingDockDidChangeMode:self];
+    }
 }
 
 - (void)setArtistName:(NSString *)artistName {
@@ -417,11 +445,19 @@ static const CGFloat kM27CircleButton = 44.0;
 
     UIView *miniHost = [self.expandedHost viewWithTag:0x4D324D48];
     UIView *tabsHost = [self.expandedHost viewWithTag:0x4D325448];
+
+    // Nothing playing: drop the pill and pull the tabs up to fill the strip.
+    // `hidden`, not alpha — this view must not hit-test either, and the pill
+    // carries the Now Playing tap.
+    BOOL showMini = self.hasTrack;
+    miniHost.hidden = !showMini;
+    CGFloat tabsY = showMini ? (kM27ExpandedMiniHeight + kM27ExpandedGap) : 0.0;
+
     miniHost.frame = CGRectMake(side, 0, width - side * 2.0, kM27ExpandedMiniHeight);
     self.miniGlass.frame = miniHost.bounds;
     [M27GlassChrome applyPaletteTintToGlass:self.miniGlass];
 
-    tabsHost.frame = CGRectMake(side, kM27ExpandedMiniHeight + kM27ExpandedGap,
+    tabsHost.frame = CGRectMake(side, tabsY,
                                 width - side * 2.0, kM27ExpandedTabHeight);
     self.tabsGlass.frame = tabsHost.bounds;
     [M27GlassChrome applyPaletteTintToGlass:self.tabsGlass];
@@ -556,7 +592,7 @@ static const CGFloat kM27CircleButton = 44.0;
     if (self.expandedHost.userInteractionEnabled && self.expandedHost.alpha > 0.01) {
         UIView *miniHost = [self.expandedHost viewWithTag:0x4D324D48];
         UIView *tabsHost = [self.expandedHost viewWithTag:0x4D325448];
-        if (miniHost) {
+        if (miniHost && !miniHost.hidden) {
             CGPoint p = [self convertPoint:point toView:miniHost];
             if ([miniHost pointInside:p withEvent:event]) return YES;
         }
