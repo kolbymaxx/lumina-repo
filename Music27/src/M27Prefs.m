@@ -137,6 +137,7 @@ static void M27WritePrefsDictionary(NSDictionary *dict) {
         seed[@"dockSafeBoot115"] = @YES;
         seed[@"miniFadeRecovery115"] = @YES;
         seed[@"whiteScreenRecovery120"] = @YES;
+        seed[@"statusBarOverlay121"] = @YES;
         if (seed[@"enabled"] == nil) seed[@"enabled"] = @YES;
         seed[@"glassTabBar"] = @NO;
         seed[@"colorTheme"] = @NO;
@@ -154,6 +155,29 @@ static void M27WritePrefsDictionary(NSDictionary *dict) {
         CFPreferencesSetAppValue(CFSTR("colorTheme"), kCFBooleanFalse,
                                  (__bridge CFStringRef)M27PrefDomain);
         CFPreferencesSetAppValue(CFSTR("enabled"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesAppSynchronize((__bridge CFStringRef)M27PrefDomain);
+    } else if (_plist[@"statusBarOverlay121"] == nil) {
+        // 1.1.21: full-screen StatusBar-1 overlay with no cover plate. Nothing
+        // opaque paints any more, so unlike 1.1.15/1.1.20 this migration does
+        // NOT force the dock OFF — whatever the user last chose is kept.
+        NSMutableDictionary *seed = [_plist mutableCopy] ?: [NSMutableDictionary dictionary];
+        seed[@"statusBarOverlay121"] = @YES;
+        seed[@"whiteScreenRecovery120"] = @YES;
+        seed[@"miniFadeRecovery115"] = @YES;
+        seed[@"dockOverlayFix112"] = @YES;
+        seed[@"hostBlankFix111"] = @YES;
+        M27WritePrefsDictionary(seed);
+        _plist = [seed copy];
+        CFPreferencesSetAppValue(CFSTR("statusBarOverlay121"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("whiteScreenRecovery120"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("miniFadeRecovery115"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("dockOverlayFix112"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("hostBlankFix111"), kCFBooleanTrue,
                                  (__bridge CFStringRef)M27PrefDomain);
         CFPreferencesAppSynchronize((__bridge CFStringRef)M27PrefDomain);
     } else if (_plist[@"whiteScreenRecovery120"] == nil) {

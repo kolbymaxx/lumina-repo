@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.20: White-screen fix. Bottom-strip glass dock only (no solid cover). Dock forced OFF once after install — re-enable Floating Glass Dock, then force-quit Music.</string>
+			<string>1.1.21: Floating glass dock is back on iOS 17 — full-screen passthrough overlay, pills only, no cover plate. Your Floating Glass Dock setting is kept as-is; force-quit Music after changing it.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -94,7 +94,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.20 — bottom-strip float dock (no white cover). Verify on iOS 17.3 before APT.</string>
+			<string>Music27 1.1.21 — StatusBar-level passthrough dock (no cover plate). Verify on iOS 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>

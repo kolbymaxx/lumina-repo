@@ -40,7 +40,8 @@ Settings live under **Settings → Music27**.
 | **1.1.17** | **Cover, don’t mutate:** overlay mask over stock chrome + dual glass pills on top. Never alpha-hide Music views |
 | **1.1.18** | **Make cover visible:** solid cover, `UIWindowLevelStatusBar - 1`, `safeBottom+12` float, install retries + Console logs |
 | **1.1.19** | **iOS 17-first:** adaptive light/dark cover on a full-screen StatusBar-level overlay — **white-screened** light Library on iOS 17.3 (SwiftPeek still saw TabBar/MiniPlayer alive) |
-| **1.1.20** | **White-screen recovery:** remove solid cover; overlay is a **bottom strip only** at `Normal+10`; one-time force dock OFF. SwiftPeek dump on iPhone13,1 / 17.3 confirmed `TabBarController` + `MiniPlayerViewController` |
+| **1.1.20** | **White-screen recovery:** remove solid cover; overlay is a **bottom strip only** at `Normal+10`; one-time force dock OFF. SwiftPeek dump on iPhone13,1 / 17.3 confirmed `TabBarController` + `MiniPlayerViewController`. Dock then never painted at all on 17.3 — `Normal+10` does not composite above Music |
+| **1.1.21** | **Dock visible again:** back to the full-screen `UIWindowLevelStatusBar - 1` window that 1.1.19 proved *does* paint on 17.3, but with **no cover plate** — pills only, every other pixel clear passthrough. Overlay can never become key window. Migration keeps the user's dock toggle instead of forcing it OFF |
 
 Prefs are read preferring `/var/jb/.../com.music27.tweak.plist` (Dopamine), then jbroot (RootHide), then rootful.
 
@@ -61,10 +62,11 @@ Architecture: `iphoneos-arm64` (rootless, files under `/var/jb`).
 ## Verify on iOS 17 (Dopamine rootless)
 
 1. Install the CI rootless `.deb` for this version; respring.
-2. **Settings → Music27** footer must say **1.1.20**. Floating Glass Dock is forced **OFF** once (white-screen recovery) — Music should open stock.
-3. Re-enable Floating Glass Dock **ON**, then **force-quit Music** and relaunch.
-4. Expect: Library usable; dual glass pills in a bottom strip only (stock mini may still peek behind — OK). No full-screen white plate.
-5. Optional Console filter: `Music27 1.1.20` → `loaded` / `install OK` / `layout … strip=`.
+2. **Settings → Music27** footer must say **1.1.21**. Unlike 1.1.15/1.1.20 this build does **not** force Floating Glass Dock OFF — it keeps whatever you last set.
+3. Make sure Enable Music27 and Floating Glass Dock are both **ON**, then **force-quit Music** and relaunch.
+4. Expect: dual glass pills floating above the home indicator, and Library still scrollable/tappable everywhere else (stock mini may peek behind the pills — OK). No white or black plate anywhere.
+5. Optional Console filter: `Music27 1.1.21` → `loaded` / `install OK` / `overlay window created level=` / `layout … screen=`.
+   - `level=` should print roughly `999.0` (`UIWindowLevelStatusBar - 1`). If `install skip: prefs` shows instead, the toggle did not stick.
 
 ## Build
 
