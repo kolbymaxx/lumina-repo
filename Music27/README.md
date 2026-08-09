@@ -48,6 +48,7 @@ Settings live under **Settings → Music27**.
 | **1.1.25** | Synchronous + `fsync`'d logging with breadcrumbs. Caught it: three launches, all `install_begin` → `dock_created` → **process gone**, never reaching `layout_begin` |
 | **1.1.26** | **Real fix.** Music was *crashing* during install; the white/black screen was a dead app, not a compositing bug. Cause: `MPMusicPlayerController.systemMusicPlayer` in `syncNowPlaying` — an IPC client for Music, called from inside Music. Removed everywhere. **Dock renders on 17.3 for the first time** |
 | **1.1.27** | Stray sixth tab: Music reports **6 view controllers but shows 5 tabs**, and the extra one rendered as "Tab 5". Dock indices are now mapped to the controllers that actually own a tab bar item |
+| **1.1.28** | Fades Music's own tab bar + mini player behind the dock so the bottom is not two copies of the same chrome. Alpha only — never `hidden`, never removed, no safe-area change. Behind its own `hideStockChrome` toggle |
 
 Prefs are read preferring `/var/jb/.../com.music27.tweak.plist` (Dopamine), then jbroot (RootHide), then rootful.
 
@@ -138,10 +139,11 @@ Readable in Filza. Force-quit Music, relaunch, then read `status.log`:
 `full_screen=1` on a `layout` line means the strip cap failed and a white screen
 is expected — that is the regression to watch for.
 
-Known in 1.1.27, to tighten next:
+Known in 1.1.28, to tighten next — measured against iOS 26/27 reference shots:
 
-- **Stock chrome shows through.** Music's own tab bar and mini-player are still drawn underneath the glass pills, so the bottom of the screen has two of everything. Hiding them is the next job — and worth revisiting from scratch, since the 1.1.17/1.1.18 "cover plate" approach was blamed for white screens it did not cause.
-- Pill sizing and insets are still tuned for the 16 layout, not 17.
+- **Collapsed state should be three separate capsules**, not one merged pill: a circular Music button, a floating now-playing pill, and a circular Search button, each with a gap. Music27 currently draws them as one continuous pill.
+- **Selected tab needs a proper filled capsule** behind it. The reference uses a clearly visible light capsule; Music27 uses a 12% tint that barely reads.
+- Pill insets and corner radii are still tuned for the 16 layout. The reference insets both capsules from the screen edges and stacks them with a visible gap.
 - The strip sits over the bottom of full-screen Now Playing and presented sheets. It stays passthrough, but it is visible there.
 
 ## Build

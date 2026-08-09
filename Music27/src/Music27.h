@@ -22,6 +22,12 @@ extern const NSInteger M27MaxPins;
 @property (nonatomic, assign) BOOL glassTabBarEnabled;
 @property (nonatomic, assign) BOOL colorThemeEnabled;
 @property (nonatomic, assign) BOOL libraryPinsEnabled;
+/// Fade Music's own tab bar + mini player while the glass dock is up. Separate
+/// from the dock toggle so a chrome regression can be switched off without
+/// losing the dock — 1.1.14 blamed a MiniPlayer fade for a crash that was very
+/// likely the MPMusicPlayerController bug fixed in 1.1.26, so this needs its own
+/// off switch until it has proven itself.
+@property (nonatomic, assign) BOOL hideStockChromeEnabled;
 + (instancetype)shared;
 - (void)reload;
 @end

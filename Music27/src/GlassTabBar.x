@@ -85,7 +85,7 @@ static CGFloat M27FloatGap(void) {
 void M27WriteStatus(NSString *stage, NSDictionary *info) {
     NSMutableDictionary *entry = [info mutableCopy] ?: [NSMutableDictionary dictionary];
     entry[@"stage"] = stage ?: @"?";
-    entry[@"version"] = @"1.1.27";
+    entry[@"version"] = @"1.1.28";
     entry[@"ios"] = UIDevice.currentDevice.systemVersion ?: @"?";
 
     @try {
@@ -548,6 +548,56 @@ static void M27RestoreStockChromeIfNeeded(UITabBarController *tbc) {
     }
 }
 
+/// Fade Music's own tab bar and mini player so the glass pills are not a second
+/// copy of chrome that is already on screen.
+///
+/// Alpha only — never `hidden`, never removed, never a safe-area change. That
+/// keeps Music's layout identical and makes this trivially reversible.
+///
+/// 1.1.14 attributed a black/crash regression to fading the MiniPlayer view. That
+/// build also carried the MPMusicPlayerController call that 1.1.26 proved was
+/// crashing Music, so the attribution is suspect — but it is not disproven
+/// either, hence the separate `hideStockChrome` pref.
+static void M27HideStockChromeForDock(UITabBarController *tbc) {
+    if (!tbc.isViewLoaded) return;
+    if (!M27Prefs.shared.hideStockChromeEnabled) {
+        M27RestoreStockChromeIfNeeded(tbc);
+        return;
+    }
+
+    BOOL hidMini = NO;
+    @try {
+        tbc.tabBar.alpha = 0.0;
+        tbc.tabBar.userInteractionEnabled = NO;
+
+        @try {
+            id tabsVC = [tbc valueForKey:@"tabsViewController"];
+            if ([tabsVC isKindOfClass:UIViewController.class]) {
+                UIView *v = ((UIViewController *)tabsVC).view;
+                if (v) {
+                    v.alpha = 0.0;
+                    v.userInteractionEnabled = NO;
+                }
+            }
+        } @catch (__unused NSException *ex) {}
+
+        UIViewController *miniVC = M27FindMiniPlayerViewController(tbc);
+        if (miniVC.isViewLoaded && M27ClassNameHasSuffix(miniVC, @"MiniPlayerViewController")) {
+            UIView *mini = miniVC.view;
+            if (mini) {
+                mini.alpha = 0.0;
+                mini.userInteractionEnabled = NO;
+                hidMini = YES;
+            }
+        }
+    } @catch (NSException *ex) {
+        M27WriteStatus(@"chrome_hide_exception", @{ @"reason": ex.reason ?: @"?" });
+        M27RestoreStockChromeIfNeeded(tbc);
+        return;
+    }
+    M27WriteStatus(@"chrome_hidden", @{ @"mini": hidMini ? @"yes" : @"no" });
+}
+
 static CGFloat M27SafeBottomInset(UITabBarController *tbc, UIWindow *overlay) {
     CGFloat safeBottom = overlay.safeAreaInsets.bottom;
     if (safeBottom < 1.0 && tbc.isViewLoaded) {
@@ -649,7 +699,7 @@ static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc, CGR
         @"frame": NSStringFromCGRect(overlay.frame),
         @"level": @((double)overlay.windowLevel),
     });
-    NSLog(@"[Music27 1.1.27] overlay window created level=%.1f frame=%@ iOS=%ld",
+    NSLog(@"[Music27 1.1.28] overlay window created level=%.1f frame=%@ iOS=%ld",
           overlay.windowLevel, NSStringFromCGRect(overlay.frame), (long)M27SystemMajorVersion());
     return overlay;
 }
@@ -665,7 +715,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat screenW = CGRectGetWidth(screen);
         CGFloat screenH = CGRectGetHeight(screen);
         if (screenW < 10 || screenH < 10) {
-            NSLog(@"[Music27 1.1.27] layout skip: empty screen bounds");
+            NSLog(@"[Music27 1.1.28] layout skip: empty screen bounds");
             M27WriteStatus(@"layout_skip_bounds", @{});
             return;
         }
@@ -673,7 +723,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat height = dock.preferredHeight;
         if (height < 10 || height > 160.0) {
             height = 52.0 + 8.0 + 58.0;
-            NSLog(@"[Music27 1.1.27] preferredHeight out of range → fallback %.0f", height);
+            NSLog(@"[Music27 1.1.28] preferredHeight out of range → fallback %.0f", height);
         }
 
         // Safe-area read before the window exists, so the strip can be created at
@@ -703,7 +753,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
 
         UIView *host = overlay.rootViewController.view;
         if (!host) {
-            NSLog(@"[Music27 1.1.27] layout skip: no host view");
+            NSLog(@"[Music27 1.1.28] layout skip: no host view");
             M27WriteStatus(@"layout_skip_no_host", @{});
             return;
         }
@@ -733,11 +783,12 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         [dock setNeedsLayout];
         [dock layoutIfNeeded];
 
-        NSLog(@"[Music27 1.1.27] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
+        NSLog(@"[Music27 1.1.28] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
               @"dockH=%.0f safeB=%.0f gap=%.0f level=%.1f hidden=%d",
               (long)M27SystemMajorVersion(), screenW, screenH,
               NSStringFromCGRect(stripFrame), y, height, safeBottom,
               floatGap, overlay.windowLevel, (int)overlay.hidden);
+        M27HideStockChromeForDock(tbc);
         M27WriteStatus(@"layout", @{
             @"strip": NSStringFromCGRect(stripFrame),
             @"screen": NSStringFromCGSize(CGSizeMake(screenW, screenH)),
@@ -746,8 +797,6 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
             @"level": @((double)overlay.windowLevel),
             @"full_screen": @(CGRectGetHeight(stripFrame) >= screenH - 1.0),
         });
-
-        M27RestoreStockChromeIfNeeded(tbc);
     } @finally {
         objc_setAssociatedObject(tbc, kM27LayoutGuardKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
@@ -788,19 +837,19 @@ static void M27RemoveDock(UITabBarController *tbc) {
 
 static void M27InstallDockIfNeeded(UITabBarController *tbc) {
     if (!tbc) {
-        NSLog(@"[Music27 1.1.27] install skip: nil tbc");
+        NSLog(@"[Music27 1.1.28] install skip: nil tbc");
         M27WriteStatus(@"install_skip_nil_tbc", @{});
         return;
     }
     if (!tbc.isViewLoaded) {
-        NSLog(@"[Music27 1.1.27] install skip: tbc not loaded");
+        NSLog(@"[Music27 1.1.28] install skip: tbc not loaded");
         M27WriteStatus(@"install_skip_tbc_unloaded", @{});
         return;
     }
     M27Prefs *prefs = M27Prefs.shared;
 
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) {
-        NSLog(@"[Music27 1.1.27] install skip: prefs en=%d dock=%d",
+        NSLog(@"[Music27 1.1.28] install skip: prefs en=%d dock=%d",
               (int)prefs.enabled, (int)prefs.glassTabBarEnabled);
         M27WriteStatus(@"install_skip_prefs", @{
             @"enabled": @(prefs.enabled),
@@ -812,9 +861,10 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
 
     @try {
         M27WriteStatus(@"install_begin", @{ @"tabs": @((long)tbc.viewControllers.count) });
-        // Never mutate Music chrome. No solid cover. Bottom-strip overlay only.
+        // No solid cover; bottom-strip overlay only. Stock chrome is faded at the
+        // end of layout via M27HideStockChromeForDock — restoring it here would
+        // fight that on every pass.
         M27SweepLegacyDockSubviews();
-        M27RestoreStockChromeIfNeeded(tbc);
 
         M27DockController *controller = M27ControllerForTabBarController(tbc);
         M27FloatingDock *dock = M27DockForTabBarController(tbc);
@@ -826,7 +876,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             objc_setAssociatedObject(tbc, kM27DockViewKey, dock, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [dock reloadTabs];
             [dock setMode:M27DockModeExpanded animated:NO];
-            NSLog(@"[Music27 1.1.27] dock view created");
+            NSLog(@"[Music27 1.1.28] dock view created");
             M27WriteStatus(@"dock_created", @{ @"h": @((double)dock.preferredHeight) });
         }
         // One breadcrumb per step: 1.1.25 narrowed the crash to this span but
@@ -847,7 +897,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
         M27WriteStatus(@"pre_layout", @{});
         M27LayoutDock(tbc, dock);
         M27DockOverlayWindow *ov = objc_getAssociatedObject(tbc, kM27DockWindowKey);
-        NSLog(@"[Music27 1.1.27] install OK dock=%p overlay=%p", dock, ov);
+        NSLog(@"[Music27 1.1.28] install OK dock=%p overlay=%p", dock, ov);
         M27WriteStatus(@"install_ok", @{
             @"overlay": ov ? @"yes" : @"no",
             @"overlay_level": @(ov ? (double)ov.windowLevel : -1.0),
@@ -860,7 +910,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             @"tabs": @((long)tbc.viewControllers.count),
         });
     } @catch (NSException *ex) {
-        NSLog(@"[Music27 1.1.27] install exception: %@", ex);
+        NSLog(@"[Music27 1.1.28] install exception: %@", ex);
         M27WriteStatus(@"install_exception", @{ @"reason": ex.reason ?: @"?" });
         M27RemoveDock(tbc);
     }
@@ -956,7 +1006,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     %orig;
     __weak UITabBarController *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.27] TBC viewDidAppear");
+        NSLog(@"[Music27 1.1.28] TBC viewDidAppear");
         M27InstallDockIfNeeded(weakSelf);
     });
     // One delayed retry — Music finishes chrome layout after first appear.
@@ -1017,7 +1067,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     if (!tbc) return;
     __weak UITabBarController *weakTBC = tbc;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.27] UIWindow makeKeyAndVisible → install");
+        NSLog(@"[Music27 1.1.28] UIWindow makeKeyAndVisible → install");
         M27InstallDockIfNeeded(weakTBC);
     });
 }

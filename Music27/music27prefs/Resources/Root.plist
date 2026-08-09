@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.27: The dock renders on iOS 17. Fixes the stray sixth tab (Music reports 6 view controllers but shows 5 tabs). Stock tab bar and mini-player still show behind the glass pills — that is the next thing to tidy.</string>
+			<string>1.1.28: Fades Music's own tab bar and mini player while the glass dock is up, so the bottom is not two copies of the same chrome. If anything misbehaves, turn Hide Stock Tab Bar / Mini Player OFF — the dock stays.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -47,6 +47,20 @@
 			<string>Floating Glass Dock</string>
 			<key>PostNotification</key>
 			<string>com.music27.tweak/ReloadPrefs</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.music27.tweak/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.music27.tweak</string>
+			<key>key</key>
+			<string>hideStockChrome</string>
+			<key>label</key>
+			<string>Hide Stock Tab Bar / Mini Player</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -94,7 +108,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.27 — dock renders; tab index mapping fixed. Verify on iOS 17.3 before APT.</string>
+			<string>Music27 1.1.28 — stock chrome fade behind the dock. Verify on iOS 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>

@@ -255,6 +255,7 @@ static void M27WritePrefsDictionary(NSDictionary *dict) {
     _glassTabBarEnabled = [self boolForKey:@"glassTabBar" defaultValue:NO];
     _colorThemeEnabled = [self boolForKey:@"colorTheme" defaultValue:NO];
     _libraryPinsEnabled = [self boolForKey:@"libraryPins" defaultValue:NO];
+    _hideStockChromeEnabled = [self boolForKey:@"hideStockChrome" defaultValue:YES];
 }
 
 @end
