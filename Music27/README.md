@@ -68,6 +68,8 @@ Architecture: `iphoneos-arm64` (rootless, files under `/var/jb`).
 5. Optional Console filter: `Music27 1.1.21` → `loaded` / `install OK` / `overlay window created level=` / `layout … screen=`.
    - `level=` should print roughly `999.0` (`UIWindowLevelStatusBar - 1`). If `install skip: prefs` shows instead, the toggle did not stick.
 
+Known in 1.1.21, to tighten next: the overlay spans the whole screen, so the pills also float over full-screen Now Playing and over presented sheets. They stay passthrough — only the pills themselves take taps — but they are visible there. Hiding the dock while Music presents a modal is the follow-up, along with sizing the pills for the 17 layout and suppressing the stock mini-player peek-through.
+
 ## Build
 
 ```bash
