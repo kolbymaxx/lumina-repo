@@ -9,7 +9,13 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = Music27
 
+# SPKit: shared source, not a linked dependency. Each tweak compiles its own
+# copy, so a change here cannot break an installed tweak that has not rebuilt.
+# src/spkit is a symlink to ../SPKit — Theos puts object files under
+# .theos/obj/<source path>, and a literal ../ there escapes the build directory.
 Music27_FILES = \
+	src/spkit/SPKRuntime.m \
+	src/spkit/SPKOverlayWindow.m \
 	src/Tweak.x \
 	src/GlassTabBar.x \
 	src/AlbumControls.x \
@@ -23,7 +29,8 @@ Music27_FILES = \
 	src/M27PinStore.m \
 	src/M27PinnedHeaderView.m
 
-Music27_CFLAGS = -fobjc-arc -Wno-unused-variable -Wno-deprecated-declarations
+Music27_CFLAGS = -fobjc-arc -Wno-unused-variable -Wno-deprecated-declarations \
+	-I$(THEOS_PROJECT_DIR)/src/spkit -DSPK_CLASS_PREFIX=M27SPK
 Music27_FRAMEWORKS = UIKit Foundation CoreGraphics QuartzCore MediaPlayer CoreFoundation
 # CoreFoundation used by M27Prefs CFPreferences fallback.
 

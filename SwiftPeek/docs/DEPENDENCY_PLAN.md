@@ -33,18 +33,22 @@ What forces shape 3:
 Every item below is something we either built or duplicated by hand while
 getting Music27 working. Nothing here is speculative.
 
-### Runtime hygiene — pure dedup, zero risk
+Shipped pieces live in [`SPKit/`](../../SPKit) as shape 1. The prefix is `SPK`,
+not `SP`, because SwiftPeek's own tweak already exports `SPPrefBool(key,
+fallback)` with a different signature and both dylibs load into the same process.
 
-`SPJailbreakRoot()` · `SPPrefBool(domain, key, default)` · `SPTrace(stage, dict)`
-· disk kill switch
+### Runtime hygiene — pure dedup, zero risk — **shipped**
+
+`SPKJailbreakRoot()` · `SPKRootedPath()` · `SPKPrefBool(domain, key, default)` ·
+`SPKPrefs(domain)` · `SPKKillSwitchEngaged(subdir)` · `SPKTrace(stage, dict)`
 
 Justification: **six near-identical copies** of the jbroot resolver exist today
 across Music27, SwiftPeek and CC27 — four inside CC27 alone. Fix a bug in it and
 you fix it six times, or forget five.
 
-### Tracing — the highest-value piece
+### Tracing — the highest-value piece — **shipped**
 
-`SPTrace` must be **synchronous and `fsync`'d**, with `_begin`/`_result` pairs.
+`SPKTrace` is **synchronous and `fsync`'d**, with `_begin`/`_result` pairs.
 
 This is not a style preference. Music27 1.1.23 logged asynchronously; when Music
 crashed during install the queue never drained and the log showed nothing at all,
@@ -55,9 +59,9 @@ guessing.
 A state dump cannot show you code that did not execute. Inspection and
 instrumentation are different tools and the library needs both.
 
-### Overlay hosting
+### Overlay hosting — **shipped**
 
-`SPOverlayWindow` — passthrough window that:
+`SPKOverlayWindow` — passthrough window that:
 - never becomes key (`canBecomeKeyWindow` NO, `makeKeyWindow` neutered), so the
   host app keeps first responder and status-bar ownership
 - hit-tests through everything that is not an explicit child
@@ -106,17 +110,25 @@ Each entry cost at least one device cycle.
 | FOVO field walks on Music UIViewControllers / UIViews | SIGSEGV (0.3.0, 0.3.5) | Per-app allowlist; never transfers |
 | Async logging around a suspected crash | Loses exactly the line that explains it | Synchronous + `fsync` |
 | Asserting a cause from a symptom without instrumentation | Five wrong Music27 theories: cover plate → window level → app window level → window size → install path. The real cause was a crash | Instrument first |
+| Shared-source **ObjC classes** with one fixed name | ObjC's class table is global and keyed by name; two dylibs in one process register the same class and the runtime picks one — possibly a stale copy from a tweak built months ago | `-DSPK_CLASS_PREFIX` per consumer. Plain C functions are safe (two-level namespace) |
+| `../` in a Theos `_FILES` entry | Object files land outside `.theos/obj` | Symlink the shared directory into `src/` |
+| Path-filtered CI that does not list the shared directory | A shared-source change silently ships nothing | Add `SPKit/**` to every consumer's workflow trigger |
 
 ## Dogfooding order
 
-1. Extract runtime hygiene + overlay hosting as **shared source**.
-2. **Music27 consumes it**, deleting its own jbroot resolver, prefs reader,
-   status writer and overlay window. Baseline for comparison is the last known
-   good build.
-3. CC27 next — first real test of whether the overlay window generalises.
-4. Siri27 via `SiriViewService` / `assistantd`. SpringBoard only after the kill
+1. ~~Extract runtime hygiene + overlay hosting as **shared source**.~~ Done —
+   `SPKit/`.
+2. ~~**Music27 consumes it**, deleting its own jbroot resolver, prefs reader,
+   status writer and overlay window.~~ Done in Music27 1.1.34. Baseline for
+   comparison is 1.1.33: the extraction is only correct if 1.1.34 behaves
+   identically on device.
+3. SwiftPeek itself — `SPPrefs.m` and `SPDumpWriter.m` still carry their own
+   copies of the resolver.
+4. CC27 next — first real test of whether the overlay window generalises, and
+   four jbroot copies to collapse.
+5. Siri27 via `SiriViewService` / `assistantd`. SpringBoard only after the kill
    switch has been exercised for real on a lower-risk target.
-5. Promote to a static library, then a `Depends:` package when shape 3 is forced.
+6. Promote to a static library, then a `Depends:` package when shape 3 is forced.
 
 If it survives being a dependency of your own tweaks across a few releases, it is
 ready for anyone else's.

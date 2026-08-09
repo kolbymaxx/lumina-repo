@@ -1,4 +1,5 @@
 #import "Music27.h"
+#import "SPKRuntime.h"
 
 // Constructor + preference observers. Logos %ctor runs once when Music loads.
 
@@ -23,11 +24,16 @@ static void M27ClearPinsCallback(CFNotificationCenterRef center, void *observer,
 
 %ctor {
     @autoreleasepool {
+        // Before anything that could crash: tracing must be able to record the
+        // crash it exists to explain.
+        SPKTraceConfigure(@"Music27", M27VersionString);
+        SPKTraceDedupeStage(@"layout");
+
         [M27Prefs.shared reload];
         (void)M27PinStore.shared;
         (void)M27ColorTheme.shared;
-        // Console filter: Music27 1.1.33 — proves dylib loaded after install.
-        NSLog(@"[Music27 1.1.33] loaded into %@ iOS=%@ enabled=%d glassDock=%d",
+        // Console filter: Music27 M27_VERSION — proves dylib loaded after install.
+        NSLog(@"[Music27 " M27_VERSION "] loaded into %@ iOS=%@ enabled=%d glassDock=%d",
               NSBundle.mainBundle.bundleIdentifier ?: @"?",
               UIDevice.currentDevice.systemVersion,
               (int)M27Prefs.shared.enabled,

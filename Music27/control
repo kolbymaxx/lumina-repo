@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.33
+Version: 1.1.34
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.33: mini pill no longer shows the AirPlay route name as the song title, and the album row scrolls with the header instead of floating over the track list.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.34: no user-visible change — the jailbreak-root resolver, prefs reader, status log and overlay window move to SPKit, the shared runtime SwiftPeek and the 27-series tweaks now build on.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks

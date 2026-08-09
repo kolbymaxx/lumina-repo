@@ -97,7 +97,13 @@ BOOL M27IsProtectedMusicHost(NSObject *_Nullable obj);
 /// Tear down / reinstall chrome from current prefs (kill switch + dock toggle).
 void M27ApplyChromeForCurrentPrefs(void);
 
+/// Tweak version, in one place. Bump here and in Music27/control together.
+/// Usable inside a literal: NSLog(@"[Music27 " M27_VERSION "] ...")
+#define M27_VERSION "1.1.34"
+#define M27VersionString @M27_VERSION
+
 /// Jailbreak root prefix ("" / "/var/jb" / RootHide jbroot).
+/// Thin wrapper over SPKit's SPKJailbreakRoot().
 NSString *M27JailbreakRoot(void);
 
 /// Append one line to $jbroot/var/mobile/Library/Music27/status.log and mirror

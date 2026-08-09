@@ -5,6 +5,9 @@ on:
   push:
     paths:
       - 'Music27/**'
+      # Music27 compiles SPKit as shared source, so a change there is a change
+      # to this tweak's binary.
+      - 'SPKit/**'
       - '.github/workflows/build-music27.yml'
 
 jobs:

@@ -1,57 +1,20 @@
 #import "Music27.h"
-#import <dlfcn.h>
+#import "SPKRuntime.h"
 
 NSString *const M27PrefDomain = @"com.music27.tweak";
 NSString *const M27ThemeDidChangeNotification = @"M27ThemeDidChangeNotification";
 NSString *const M27PinsDidChangeNotification = @"M27PinsDidChangeNotification";
 const NSInteger M27MaxPins = 12;
 
-// Resolve jailbreak root the same way Siri27 does — RootHide jbroot, then
-// /var/jb, then rootful.
-static NSString *M27JailbreakRootPrefix(void) {
-    static NSString *prefix;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        prefix = @"";
-        const char *(*jbrootFn)(const char *) = (const char *(*)(const char *))dlsym(RTLD_DEFAULT, "jbroot");
-        if (jbrootFn) {
-            const char *p = jbrootFn("/");
-            if (p && p[0] != '\0' && strcmp(p, "/") != 0) {
-                prefix = [[NSString stringWithUTF8String:p] stringByStandardizingPath];
-                return;
-            }
-        }
-        Dl_info info = {0};
-        if (dladdr((const void *)M27JailbreakRootPrefix, &info) && info.dli_fname) {
-            NSString *dylibPath = [NSString stringWithUTF8String:info.dli_fname];
-            for (NSString *marker in @[ @"/Library/MobileSubstrate/DynamicLibraries/",
-                                       @"/usr/lib/TweakInject/" ]) {
-                NSRange r = [dylibPath rangeOfString:marker];
-                if (r.location != NSNotFound && r.location > 0) {
-                    prefix = [dylibPath substringToIndex:r.location];
-                    return;
-                }
-            }
-        }
-    });
-    return prefix;
-}
-
+// Jailbreak root and prefs path resolution now live in SPKit — one copy shared
+// with SwiftPeek and CC27 instead of six that drift apart. M27JailbreakRoot
+// stays as the name the rest of Music27 calls.
 NSString *M27JailbreakRoot(void) {
-    return M27JailbreakRootPrefix();
+    return SPKJailbreakRoot();
 }
 
 static NSArray<NSString *> *M27PrefsCandidatePaths(void) {
-    NSString *rel = @"/var/mobile/Library/Preferences/com.music27.tweak.plist";
-    NSMutableArray<NSString *> *paths = [NSMutableArray array];
-    // Prefer /var/jb first (Dopamine rootless). Then jbroot (RootHide), then rootful.
-    [paths addObject:[@"/var/jb" stringByAppendingString:rel]];
-    NSString *jb = M27JailbreakRootPrefix();
-    if (jb.length > 0 && ![jb isEqualToString:@"/var/jb"]) {
-        [paths addObject:[jb stringByAppendingString:rel]];
-    }
-    [paths addObject:rel];
-    return paths;
+    return SPKPrefsCandidatePaths(M27PrefDomain);
 }
 
 static NSDictionary *M27ReadPrefsDictionary(void) {
