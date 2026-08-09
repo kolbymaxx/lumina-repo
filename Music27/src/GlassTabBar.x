@@ -336,46 +336,22 @@ static UIViewController *M27FindMiniPlayerViewController(UITabBarController *tbc
 /// First UIControl anywhere under `view`, breadth-first, depth-capped.
 /// Fallback for when hitTest finds nothing useful — Music's mini player wraps
 /// its tap target differently across versions.
-/// "The first UIControl anywhere in this subtree" was a bad question to ask.
-///
-/// 1.1.37 logged the answer 48 times:
-///
-///   nowplaying_sent_action control=MusicApplication.NowPlayingShuffleButton
-///                          frame={{-28, 14}, {28, 28}}
-///
-/// MiniPlayerViewController really does own a `shuffleButton`, parked off-screen
-/// at x = -28 because the compact layout does not show it. It just happens to
-/// come first in subview order. So every tap on the glass pill was toggling an
-/// invisible shuffle control — not a no-op, an actual wrong action.
-///
-/// A control that is off-screen, hidden, transparent or zero-sized is not what
-/// the user pointed at, so it is not a candidate.
-static BOOL M27ControlIsPlausibleTarget(UIControl *control, UIView *root) {
-    if (!control || !control.isEnabled || control.hidden || control.alpha < 0.01) return NO;
-    CGRect bounds = control.bounds;
-    if (bounds.size.width < 8.0 || bounds.size.height < 8.0) return NO;
-
-    CGRect inRoot = [control convertRect:control.bounds toView:root];
-    // Must actually overlap the thing the user tapped.
-    if (!CGRectIntersectsRect(inRoot, root.bounds)) return NO;
-    if (CGRectGetMinX(inRoot) < -1.0 || CGRectGetMinY(inRoot) < -1.0) return NO;
-    return YES;
-}
-
-static UIControl *M27FirstControlIn(UIView *view, NSInteger depth, UIView *root) {
-    if (!view || depth > 4) return nil;
-    for (UIView *sub in view.subviews) {
-        if ([sub isKindOfClass:UIControl.class] &&
-            M27ControlIsPlausibleTarget((UIControl *)sub, root)) {
-            return (UIControl *)sub;
-        }
-    }
-    for (UIView *sub in view.subviews) {
-        UIControl *hit = M27FirstControlIn(sub, depth + 1, root);
-        if (hit) return hit;
-    }
-    return nil;
-}
+// THE CONTROL SEARCH IS GONE, AND SO IS ITS PLAUSIBILITY FILTER.
+//
+// "Find the first UIControl in this subtree and fire it" produced two wrong
+// buttons in two builds:
+//
+//   1.1.37  NowPlayingShuffleButton   {{-28, 14}, {28, 28}}   toggled shuffle
+//   1.1.38  NowPlayingTransportButton {{0, 17.7}, {21, 21}}   played/paused
+//
+// 1.1.38 added a filter rejecting off-screen, hidden, transparent and
+// zero-sized controls. It worked exactly as designed — and the search simply
+// returned the next candidate, which was play/pause. That is the tell: the mini
+// player owns playPauseButton, skipButton, reverseButton, shuffleButton,
+// repeatButton and handoffButton, and not one of them opens the player.
+// Expanding is a gesture. No filter can rescue a search for something that is
+// not there, so both the search and its filter are deleted rather than tuned
+// again.
 
 /// Every tap/long-press recogniser on `view` and its ancestors, nearest first.
 static NSArray<UIGestureRecognizer *> *M27TapGesturesNear(UIView *view, NSInteger levels) {
