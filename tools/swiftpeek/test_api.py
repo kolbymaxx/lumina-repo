@@ -163,6 +163,45 @@ class ReadAPITests(unittest.TestCase):
         self.assertIn("KEY", rows[0])
         self.assertIn("OPAQUE", rows[0])
 
+    def test_windows_views_opt_in(self):
+        """View subtree is printed only with views=True."""
+        sample = json.loads(json.dumps(WINDOW_SAMPLE))
+        sample["windows"][1]["views"] = [
+            {
+                "depth": 0,
+                "class": "M27PassthroughView",
+                "frame": "{0,0,390,844}",
+                "hidden": False,
+                "alpha": 1.0,
+            },
+            {
+                "depth": 1,
+                "class": "M27FloatingDock",
+                "frame": "{0,0,0,0}",
+                "hidden": False,
+                "alpha": 1.0,
+                "invisible": True,
+            },
+        ]
+        sess = PeekSession(sample, self.catalog)
+
+        plain = sess.windows_table()
+        self.assertEqual(len(plain), 3)
+        self.assertFalse(any("M27FloatingDock" in r for r in plain))
+
+        with_views = sess.windows_table(views=True)
+        self.assertEqual(len(with_views), 5)
+        dock = [r for r in with_views if "M27FloatingDock" in r]
+        self.assertEqual(len(dock), 1)
+        # A zero-sized dock inside a correct overlay is the case we are hunting.
+        self.assertIn("INVISIBLE", dock[0])
+        self.assertIn("{0,0,0,0}", dock[0])
+
+    def test_windows_views_absent_is_safe(self):
+        """Windows with no `views` key must not break views=True."""
+        sess = PeekSession(WINDOW_SAMPLE, self.catalog)
+        self.assertEqual(len(sess.windows_table(views=True)), 3)
+
     def test_windows_flags_opaque_background(self):
         """A solid background is the white-screen signature — must surface."""
         sess = PeekSession(

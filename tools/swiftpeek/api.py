@@ -122,26 +122,36 @@ class PeekSession:
         """
         return list(self.dump.get("windows") or [])
 
-    def windows_table(self) -> list[str]:
+    @staticmethod
+    def _view_flags(node: dict[str, Any]) -> list[str]:
+        flags = []
+        if node.get("hidden"):
+            flags.append("HIDDEN")
+        alpha = node.get("alpha")
+        if isinstance(alpha, (int, float)) and alpha < 0.999:
+            flags.append(f"alpha={alpha:.2f}")
+        if node.get("opaque"):
+            flags.append("OPAQUE")
+        bg = node.get("background")
+        if bg and bg not in ("clear", "nil"):
+            flags.append(f"bg={bg}")
+        if node.get("invisible"):
+            flags.append("<-- INVISIBLE")
+        return flags
+
+    def windows_table(self, *, views: bool = False) -> list[str]:
         """One aligned line per window — the fastest way to eyeball an overlay.
 
-        Reads as: level, frame, flags, class, root view controller.
+        Reads as: level, frame, class, root view controller, flags. With
+        ``views=True`` each window is followed by its indented view subtree,
+        which is where a correctly-placed overlay hiding an empty or zero-sized
+        subview shows itself.
         """
         rows = []
         for w in self.windows:
-            flags = []
-            if w.get("hidden"):
-                flags.append("HIDDEN")
+            flags = self._view_flags(w)
             if w.get("is_key"):
-                flags.append("KEY")
-            if w.get("opaque"):
-                flags.append("OPAQUE")
-            alpha = w.get("alpha")
-            if isinstance(alpha, (int, float)) and alpha < 0.999:
-                flags.append(f"alpha={alpha:.2f}")
-            bg = w.get("background")
-            if bg and bg not in ("clear", "nil"):
-                flags.append(f"bg={bg}")
+                flags.insert(0, "KEY")
             rows.append(
                 "level={:<8.1f} {:<22} {:<28} root={:<28} {}".format(
                     float(w.get("level") or 0),
@@ -151,6 +161,18 @@ class PeekSession:
                     " ".join(flags),
                 )
             )
+            if not views:
+                continue
+            for node in w.get("views") or []:
+                depth = int(node.get("depth") or 0)
+                rows.append(
+                    "    {}{:<34} {:<22} {}".format(
+                        "  " * depth,
+                        str(node.get("class") or "?"),
+                        str(node.get("frame") or "?"),
+                        " ".join(self._view_flags(node)),
+                    ).rstrip()
+                )
         return rows
 
     def summary(self) -> dict[str, Any]:

@@ -1,9 +1,9 @@
 Package: com.kolby.swiftpeek
 Name: SwiftPeek
 Depends: mobilesubstrate, preferenceloader
-Version: 0.4.0
+Version: 0.4.1
 Architecture: iphoneos-arm64
-Description: Read-only SwiftUI + window-tree inspector. 0.4.0 adds per-window level/frame/alpha dumps, pref-driven per-process targets, and an SSH kill switch. Debug tooling; not published.
+Description: Read-only SwiftUI + window-tree inspector. 0.4.1 adds per-window level/frame/alpha dumps with a depth-3 view subtree, pref-driven per-process targets, and an SSH kill switch. Debug tooling; not published.
 Maintainer: ma6x9x
 Author: ma6x9x
 Section: Tweaks

@@ -713,12 +713,18 @@ static BOOL gSPDyldWatchInstalled = NO;
 /// Read-only snapshot of every UIWindow in the process, ordered the way the
 /// compositor stacks them (ascending windowLevel).
 ///
-/// This is deliberately the safest thing SwiftPeek does: plain property reads
-/// on UIWindow, no subview recursion, no field walking, no Swift metadata. It
-/// exists because Music27 burned four device cycles guessing at window level
-/// and opacity with no way to see either. `level`, `hidden`, `alpha`,
-/// `background` and `opaque` together explain both failure modes we hit — a
-/// window that paints over the app, and a window that never composites at all.
+/// This is deliberately the safest thing SwiftPeek does: plain property reads,
+/// no field walking, no Swift metadata. It exists because Music27 burned four
+/// device cycles guessing at window level and opacity with no way to see
+/// either. `level`, `hidden`, `alpha`, `background` and `opaque` together
+/// explain both failure modes we hit — a window that paints over the app, and
+/// a window that never composites at all.
+///
+/// Each window also carries a shallow view subtree (`views`), because knowing
+/// the overlay window is correct is only half an answer: an overlay that exists
+/// at the right level with the right frame can still show nothing if the view
+/// inside it is zero-sized, transparent or hidden. Depth- and breadth-capped so
+/// this stays a bounded walk, never a full hierarchy dump.
 static NSString *SPColorDescription(UIColor *color) {
     if (!color) return @"nil";
     CGFloat r = 0, g = 0, b = 0, a = 0;
@@ -737,6 +743,53 @@ static NSString *SPColorDescription(UIColor *color) {
 static NSString *SPRectString(CGRect r) {
     return [NSString stringWithFormat:@"{%.0f,%.0f,%.0f,%.0f}",
             r.origin.x, r.origin.y, r.size.width, r.size.height];
+}
+
+static const NSInteger kSPViewTreeMaxDepth = 3;
+static const NSInteger kSPViewTreeMaxNodes = 48;
+static const NSInteger kSPViewTreeMaxSiblings = 12;
+
+/// Shallow view walk under a window. Class name, geometry and the handful of
+/// properties that decide whether something is on screen at all. No field
+/// walking, no Swift metadata, no forcing of lazily-loaded views.
+static void SPAppendViewTree(UIView *view, NSInteger depth,
+                             NSMutableArray<NSDictionary *> *out) {
+    if (!view || out.count >= kSPViewTreeMaxNodes) return;
+
+    CGRect f = view.frame;
+    NSMutableDictionary *node = [@{
+        @"depth": @(depth),
+        @"class": @(object_getClassName(view) ?: "?"),
+        @"frame": SPRectString(f),
+        @"hidden": @(view.hidden),
+        @"alpha": @((double)view.alpha),
+        @"subviews": @(view.subviews.count),
+    } mutableCopy];
+
+    // Only record a background when it would actually paint — keeps the common
+    // case terse and makes an unexpected opaque fill jump out.
+    NSString *bg = SPColorDescription(view.backgroundColor);
+    if (![bg isEqualToString:@"clear"] && ![bg isEqualToString:@"nil"]) {
+        node[@"background"] = bg;
+    }
+    // The three ways a view is present but invisible.
+    if (view.hidden || view.alpha < 0.01 ||
+        CGRectIsEmpty(f) || f.size.width < 1.0 || f.size.height < 1.0) {
+        node[@"invisible"] = @YES;
+    }
+    if (view.tag != 0) {
+        // Tweaks tag their views; 'M27D' etc. read better as FourCC.
+        node[@"tag"] = @(view.tag);
+    }
+    [out addObject:node];
+
+    if (depth >= kSPViewTreeMaxDepth) return;
+    NSInteger siblings = 0;
+    for (UIView *sub in view.subviews) {
+        if (siblings++ >= kSPViewTreeMaxSiblings) break;
+        if (out.count >= kSPViewTreeMaxNodes) break;
+        SPAppendViewTree(sub, depth + 1, out);
+    }
 }
 
 static NSArray<NSDictionary *> *SPCollectWindowTree(void) {
@@ -793,6 +846,17 @@ static NSArray<NSDictionary *> *SPCollectWindowTree(void) {
                 entry[@"scene"] = ws ? (ws.session.persistentIdentifier ?: @"?") : @"nil";
                 entry[@"scene_active"] =
                     @(ws ? (ws.activationState == UISceneActivationStateForegroundActive) : NO);
+            }
+
+            // Never touch root.view when the view is not loaded — forcing it to
+            // load is a mutation, and doing that to Music blanked Library once.
+            if (SPPrefBool(@"dumpWindowViews", YES)) {
+                NSMutableArray<NSDictionary *> *views = [NSMutableArray array];
+                for (UIView *sub in w.subviews) {
+                    if (views.count >= kSPViewTreeMaxNodes) break;
+                    SPAppendViewTree(sub, 0, views);
+                }
+                if (views.count) entry[@"views"] = views;
             }
             [out addObject:entry];
         }
@@ -1048,7 +1112,7 @@ static void SPStartIfEnabled(void) {
     dispatch_once(&launchOnce, ^{
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
             NSString *msg = [NSString stringWithFormat:
-                @"%@ launch probe (0.4.0) scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
+                @"%@ launch probe (0.4.1) scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
                 NSProcessInfo.processInfo.processName ?: @"?",
                 scanOn ? 1 : 0, hooksOn ? 1 : 0, fieldsOn ? 1 : 0, metaOn ? 1 : 0];
             SPWriteHeartbeat(msg, NO, @[], @[]);

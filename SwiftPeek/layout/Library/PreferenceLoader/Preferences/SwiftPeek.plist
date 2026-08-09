@@ -17,7 +17,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>0.4.0: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background) plus the SwiftUI host tree. Force-quit the target app after changing anything.</string>
+			<string>0.4.1: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background), a depth-3 view subtree per window, plus the SwiftUI host tree. Force-quit the target app after changing anything.</string>
 			<key>label</key>
 			<string>SwiftPeek</string>
 		</dict>
@@ -173,6 +173,20 @@
 			<string>dumpWindows</string>
 			<key>label</key>
 			<string>Window Tree (level / frame / alpha)</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>dumpWindowViews</string>
+			<key>label</key>
+			<string>Window View Subtree (depth 3)</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>

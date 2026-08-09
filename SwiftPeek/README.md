@@ -6,7 +6,7 @@ type names (M1) and optional on-screen strings (M2) without mutating the UI.
 **Status:** Phase 1 — M1 + safe M2 `screen_strings` proven on iPhone X /
 16.7.14. **Music27 dock work now prefers iOS 17 Dopamine dumps** (stock mini
 already floats; see [`docs/TWEAK_WORKFLOW.md`](docs/TWEAK_WORKFLOW.md)). Live
-FOVO field meta is **unsafe** on Music — leave Dump Field Meta **off** (0.4.0).
+FOVO field meta is **unsafe** on Music — leave Dump Field Meta **off** (0.4.1).
 Field **names/layouts** for device-sampled Music types are recoverable
 **offline** via `swiftmd` on `MusicApplication.framework`
 ([docs/OFFLINE_MUSIC_FIELDS.md](docs/OFFLINE_MUSIC_FIELDS.md)). Phase 2–3 host
@@ -61,6 +61,7 @@ Domain: `com.kolby.swiftpeek`
 | `enabled` | `false` | Master kill switch |
 | `scanWindows` | `false` | Walk loaded VC tree → coalesced attach dump |
 | `dumpWindows` | `true` | Per-`UIWindow` level/frame/alpha/background snapshot (**safe** — plain property reads) |
+| `dumpWindowViews` | `true` | Depth-3 view subtree under each window (**safe** — capped walk, never forces a view to load) |
 | `dumpFields` | `false` | M2: on-screen UILabel/accessibility strings (**safe**) |
 | `dumpFieldMeta` | `false` | Hosting FOVO only; Music 16.7 has no hosts — **leave off** |
 | `installHooks` | `false` | Swizzle hosting layout (**leave off**) |
@@ -76,7 +77,7 @@ $jbroot/var/mobile/Library/SwiftPeek/dumps/<process>_<timestamp>.json
 $jbroot/var/mobile/Library/SwiftPeek/status.json
 ```
 
-### Window tree (0.4.0)
+### Window tree (0.4.0+)
 
 Every dump written with `dumpWindows` on carries a `windows` array — one entry
 per `UIWindow`, sorted ascending by `windowLevel`, i.e. the order the compositor
@@ -104,6 +105,27 @@ makes obvious:
 
 Written even when the controller scan finds nothing interesting, since "the app
 looks completely stock" is exactly when the window list is the whole story.
+
+#### View subtree (0.4.1)
+
+`--views` prints the view subtree under each window — depth 3, 12 siblings and
+48 nodes per window, never forcing a lazily-loaded view. A view is flagged
+`INVISIBLE` when it is hidden, `alpha < 0.01`, or has an empty / sub-pixel frame.
+
+```bash
+PYTHONPATH=tools python3 -m swiftpeek windows dump.json --views
+```
+
+```
+level=2.0  {0,0,390,844}  M27DockOverlayWindow  root=UIViewController
+    M27PassthroughView       {0,0,390,844}
+      M27FloatingDock          {0,0,0,0}       <-- INVISIBLE
+```
+
+This is the third failure mode, and the one the window list alone cannot show:
+the overlay window is present, at the right level, correctly sized — and the
+view inside it still paints nothing. Without this you confirm the window is fine
+and then spend another device cycle finding out why that did not help.
 
 ## Build
 

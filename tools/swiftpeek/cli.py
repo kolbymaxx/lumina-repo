@@ -5,7 +5,7 @@
   python3 -m swiftpeek summary annotated.json
   python3 -m swiftpeek types annotated.json
   python3 -m swiftpeek strings annotated.json
-  python3 -m swiftpeek windows annotated.json
+  python3 -m swiftpeek windows annotated.json --views
   python3 -m swiftpeek fields annotated.json MiniPlayer
   python3 -m swiftpeek find annotated.json artwork
   python3 -m swiftpeek targets annotated.json
@@ -55,7 +55,7 @@ def _session(args: argparse.Namespace) -> PeekSession:
 
 def _cmd_windows(args: argparse.Namespace) -> int:
     sess = _session(args)
-    rows = sess.windows_table()
+    rows = sess.windows_table(views=getattr(args, "views", False))
     if not rows:
         print(
             "no window data in this dump "
@@ -199,11 +199,19 @@ def main(argv: list[str] | None = None) -> int:
         ("summary", "dump overview", _cmd_summary),
         ("types", "list node types", _cmd_types),
         ("strings", "list screen_strings", _cmd_strings),
-        ("windows", "list UIWindows by level (0.4.0+)", _cmd_windows),
     ):
         p = sub.add_parser(name, help=help_)
         p.add_argument("dump", type=Path)
         p.set_defaults(func=fn)
+
+    p = sub.add_parser("windows", help="list UIWindows by level (0.4.0+)")
+    p.add_argument("dump", type=Path)
+    p.add_argument(
+        "--views",
+        action="store_true",
+        help="also print each window's view subtree (0.4.1+)",
+    )
+    p.set_defaults(func=_cmd_windows)
 
     p = sub.add_parser("fields", help="show offline fields for type substring")
     p.add_argument("dump", type=Path)
