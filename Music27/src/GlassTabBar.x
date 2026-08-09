@@ -26,7 +26,13 @@
 // level 0 with nothing above it, so "Normal+2 is too low to composite" was never
 // true either.
 //
-// 1.1.24 (this build):
+// 1.1.25 adds nothing visual. 1.1.24's run produced `loaded` and then total
+// silence with the dock ON — no install_ok, no exception, no layout — which is
+// only possible if Music died before the async status queue drained. Logging is
+// synchronous and fsync'd now, with _begin breadcrumbs, so a crash is pinned to
+// a span instead of erasing the attempt.
+//
+// 1.1.24 (strip behaviour, unchanged here):
 // - The overlay window is a BOTTOM STRIP: dock height + float gap + safe area,
 //   hard-capped at 30% of the screen so it can never grow toward full-screen.
 // - Created at its real strip size. 1.1.20 seeded a 1pt-tall window and resized
@@ -56,69 +62,80 @@ static CGFloat M27FloatGap(void) {
     return M27SystemMajorVersion() >= 17 ? kM27FloatGap17 : kM27FloatGap16;
 }
 
-#pragma mark - On-device status (1.1.23+)
+#pragma mark - On-device status (1.1.23+, synchronous since 1.1.25)
 
-/// The install path used to report itself only through NSLog, which needs a Mac
-/// with Console attached. This writes the same facts to disk so the phone can
-/// answer on its own — which is how the strip-vs-full-screen result above was
-/// finally pinned down instead of guessed at.
+/// SYNCHRONOUS ON PURPOSE.
+///
+/// 1.1.24 queued these writes with dispatch_async. On the 17.3 run with the dock
+/// ON, status.log showed `loaded` and then nothing at all — no install_ok, no
+/// install_exception, no layout. Every branch past the prefs check writes
+/// something, so the only way to get silence is for the process to die before
+/// the queue drained. An async logger loses precisely the line that explains a
+/// crash, which makes it useless for the one job it exists to do.
+///
+/// So: write inline, on the calling thread, before returning. Callers pair a
+/// `_begin` line with a result line, so a missing result now pins the crash to a
+/// known span instead of erasing the whole attempt.
+///
+/// Cost is a small append on the main thread. `layout` is deduped by content so
+/// repeated identical layouts do not hammer the disk.
 void M27WriteStatus(NSString *stage, NSDictionary *info) {
-    static dispatch_queue_t queue;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        queue = dispatch_queue_create("com.music27.status", DISPATCH_QUEUE_SERIAL);
-    });
-
     NSMutableDictionary *entry = [info mutableCopy] ?: [NSMutableDictionary dictionary];
     entry[@"stage"] = stage ?: @"?";
-    entry[@"version"] = @"1.1.24";
+    entry[@"version"] = @"1.1.25";
     entry[@"ios"] = UIDevice.currentDevice.systemVersion ?: @"?";
 
-    dispatch_async(queue, ^{
-        @try {
-            NSString *dir = [M27JailbreakRoot() ?: @""
-                             stringByAppendingString:@"/var/mobile/Library/Music27"];
-            [[NSFileManager defaultManager] createDirectoryAtPath:dir
-                                      withIntermediateDirectories:YES
-                                                       attributes:nil
-                                                            error:nil];
+    @try {
+        NSMutableArray *parts = [NSMutableArray array];
+        for (NSString *key in [entry.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+            [parts addObject:[NSString stringWithFormat:@"%@=%@", key, entry[key]]];
+        }
+        NSString *body = [parts componentsJoinedByString:@" "];
 
-            NSISO8601DateFormatter *fmt = [NSISO8601DateFormatter new];
-            NSString *ts = [fmt stringFromDate:NSDate.date] ?: @"";
-            entry[@"timestamp"] = ts;
+        // Layout runs on every viewDidLayoutSubviews; only record real changes.
+        static NSString *lastLayoutBody = nil;
+        if ([stage isEqualToString:@"layout"]) {
+            if ([body isEqualToString:lastLayoutBody]) return;
+            lastLayoutBody = [body copy];
+        }
 
-            // status.json is the latest state; status.log keeps the sequence,
-            // which is what shows a dock being installed and then torn down.
-            NSData *json = [NSJSONSerialization dataWithJSONObject:entry
-                                                           options:NSJSONWritingPrettyPrinted
-                                                             error:nil];
-            if (json) {
-                [json writeToFile:[dir stringByAppendingPathComponent:@"status.json"]
-                          options:NSDataWritingAtomic error:nil];
-            }
+        NSString *dir = [M27JailbreakRoot() ?: @""
+                         stringByAppendingString:@"/var/mobile/Library/Music27"];
+        [[NSFileManager defaultManager] createDirectoryAtPath:dir
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:nil];
 
-            NSMutableArray *parts = [NSMutableArray array];
-            for (NSString *key in [entry.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
-                if ([key isEqualToString:@"timestamp"]) continue;
-                [parts addObject:[NSString stringWithFormat:@"%@=%@", key, entry[key]]];
+        NSISO8601DateFormatter *fmt = [NSISO8601DateFormatter new];
+        NSString *ts = [fmt stringFromDate:NSDate.date] ?: @"";
+        entry[@"timestamp"] = ts;
+
+        NSString *line = [NSString stringWithFormat:@"%@ %@\n", ts, body];
+        NSString *logPath = [dir stringByAppendingPathComponent:@"status.log"];
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:logPath];
+        if (fh) {
+            @try {
+                [fh seekToEndOfFile];
+                [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+                // Force it to disk now — a crash one instruction later must not
+                // take this line with it.
+                [fh synchronizeFile];
+            } @finally {
+                [fh closeFile];
             }
-            NSString *line = [NSString stringWithFormat:@"%@ %@\n", ts,
-                              [parts componentsJoinedByString:@" "]];
-            NSString *logPath = [dir stringByAppendingPathComponent:@"status.log"];
-            NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:logPath];
-            if (fh) {
-                @try {
-                    [fh seekToEndOfFile];
-                    [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-                } @finally {
-                    [fh closeFile];
-                }
-            } else {
-                [line writeToFile:logPath atomically:YES
-                         encoding:NSUTF8StringEncoding error:nil];
-            }
-        } @catch (__unused NSException *ex) {}
-    });
+        } else {
+            [line writeToFile:logPath atomically:YES
+                     encoding:NSUTF8StringEncoding error:nil];
+        }
+
+        NSData *json = [NSJSONSerialization dataWithJSONObject:entry
+                                                       options:NSJSONWritingPrettyPrinted
+                                                         error:nil];
+        if (json) {
+            [json writeToFile:[dir stringByAppendingPathComponent:@"status.json"]
+                      options:NSDataWritingAtomic error:nil];
+        }
+    } @catch (__unused NSException *ex) {}
 }
 
 static const void *kM27DockControllerKey = &kM27DockControllerKey;
@@ -547,7 +564,11 @@ static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc, CGR
     overlay.rootViewController = root;
 
     objc_setAssociatedObject(tbc, kM27DockWindowKey, overlay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    NSLog(@"[Music27 1.1.24] overlay window created level=%.1f frame=%@ iOS=%ld",
+    M27WriteStatus(@"overlay_created", @{
+        @"frame": NSStringFromCGRect(overlay.frame),
+        @"level": @((double)overlay.windowLevel),
+    });
+    NSLog(@"[Music27 1.1.25] overlay window created level=%.1f frame=%@ iOS=%ld",
           overlay.windowLevel, NSStringFromCGRect(overlay.frame), (long)M27SystemMajorVersion());
     return overlay;
 }
@@ -558,11 +579,12 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
     objc_setAssociatedObject(tbc, kM27LayoutGuardKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
     @try {
+        M27WriteStatus(@"layout_begin", @{});
         CGRect screen = M27ScreenBounds(tbc);
         CGFloat screenW = CGRectGetWidth(screen);
         CGFloat screenH = CGRectGetHeight(screen);
         if (screenW < 10 || screenH < 10) {
-            NSLog(@"[Music27 1.1.24] layout skip: empty screen bounds");
+            NSLog(@"[Music27 1.1.25] layout skip: empty screen bounds");
             M27WriteStatus(@"layout_skip_bounds", @{});
             return;
         }
@@ -570,7 +592,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat height = dock.preferredHeight;
         if (height < 10 || height > 160.0) {
             height = 52.0 + 8.0 + 58.0;
-            NSLog(@"[Music27 1.1.24] preferredHeight out of range → fallback %.0f", height);
+            NSLog(@"[Music27 1.1.25] preferredHeight out of range → fallback %.0f", height);
         }
 
         // Safe-area read before the window exists, so the strip can be created at
@@ -600,7 +622,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
 
         UIView *host = overlay.rootViewController.view;
         if (!host) {
-            NSLog(@"[Music27 1.1.24] layout skip: no host view");
+            NSLog(@"[Music27 1.1.25] layout skip: no host view");
             M27WriteStatus(@"layout_skip_no_host", @{});
             return;
         }
@@ -630,7 +652,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         [dock setNeedsLayout];
         [dock layoutIfNeeded];
 
-        NSLog(@"[Music27 1.1.24] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
+        NSLog(@"[Music27 1.1.25] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
               @"dockH=%.0f safeB=%.0f gap=%.0f level=%.1f hidden=%d",
               (long)M27SystemMajorVersion(), screenW, screenH,
               NSStringFromCGRect(stripFrame), y, height, safeBottom,
@@ -685,19 +707,19 @@ static void M27RemoveDock(UITabBarController *tbc) {
 
 static void M27InstallDockIfNeeded(UITabBarController *tbc) {
     if (!tbc) {
-        NSLog(@"[Music27 1.1.24] install skip: nil tbc");
+        NSLog(@"[Music27 1.1.25] install skip: nil tbc");
         M27WriteStatus(@"install_skip_nil_tbc", @{});
         return;
     }
     if (!tbc.isViewLoaded) {
-        NSLog(@"[Music27 1.1.24] install skip: tbc not loaded");
+        NSLog(@"[Music27 1.1.25] install skip: tbc not loaded");
         M27WriteStatus(@"install_skip_tbc_unloaded", @{});
         return;
     }
     M27Prefs *prefs = M27Prefs.shared;
 
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) {
-        NSLog(@"[Music27 1.1.24] install skip: prefs en=%d dock=%d",
+        NSLog(@"[Music27 1.1.25] install skip: prefs en=%d dock=%d",
               (int)prefs.enabled, (int)prefs.glassTabBarEnabled);
         M27WriteStatus(@"install_skip_prefs", @{
             @"enabled": @(prefs.enabled),
@@ -708,6 +730,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
     }
 
     @try {
+        M27WriteStatus(@"install_begin", @{ @"tabs": @((long)tbc.viewControllers.count) });
         // Never mutate Music chrome. No solid cover. Bottom-strip overlay only.
         M27SweepLegacyDockSubviews();
         M27RestoreStockChromeIfNeeded(tbc);
@@ -722,7 +745,8 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             objc_setAssociatedObject(tbc, kM27DockViewKey, dock, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [dock reloadTabs];
             [dock setMode:M27DockModeExpanded animated:NO];
-            NSLog(@"[Music27 1.1.24] dock view created");
+            NSLog(@"[Music27 1.1.25] dock view created");
+            M27WriteStatus(@"dock_created", @{ @"h": @((double)dock.preferredHeight) });
         }
         dock.delegate = controller;
         controller.dock = dock;
@@ -732,7 +756,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
         [controller syncNowPlaying];
         M27LayoutDock(tbc, dock);
         M27DockOverlayWindow *ov = objc_getAssociatedObject(tbc, kM27DockWindowKey);
-        NSLog(@"[Music27 1.1.24] install OK dock=%p overlay=%p", dock, ov);
+        NSLog(@"[Music27 1.1.25] install OK dock=%p overlay=%p", dock, ov);
         M27WriteStatus(@"install_ok", @{
             @"overlay": ov ? @"yes" : @"no",
             @"overlay_level": @(ov ? (double)ov.windowLevel : -1.0),
@@ -745,7 +769,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             @"tabs": @((long)tbc.viewControllers.count),
         });
     } @catch (NSException *ex) {
-        NSLog(@"[Music27 1.1.24] install exception: %@", ex);
+        NSLog(@"[Music27 1.1.25] install exception: %@", ex);
         M27WriteStatus(@"install_exception", @{ @"reason": ex.reason ?: @"?" });
         M27RemoveDock(tbc);
     }
@@ -841,7 +865,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     %orig;
     __weak UITabBarController *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.24] TBC viewDidAppear");
+        NSLog(@"[Music27 1.1.25] TBC viewDidAppear");
         M27InstallDockIfNeeded(weakSelf);
     });
     // One delayed retry — Music finishes chrome layout after first appear.
@@ -902,7 +926,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     if (!tbc) return;
     __weak UITabBarController *weakTBC = tbc;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.24] UIWindow makeKeyAndVisible → install");
+        NSLog(@"[Music27 1.1.25] UIWindow makeKeyAndVisible → install");
         M27InstallDockIfNeeded(weakTBC);
     });
 }

@@ -44,7 +44,8 @@ Settings live under **Settings → Music27**.
 | **1.1.21** | Full-screen `StatusBar - 1` overlay with **no plate at all** — still white-screened. This is the decisive result: 1.1.19 and 1.1.21 differ only by the plate and both blanked Music, so **the plate was never the cause — the window level was** |
 | **1.1.22** | **White-screen fixed, dock still invisible:** level back to `UIWindowLevelNormal + 2`. Library usable on 17.3, Music still stock |
 | **1.1.23** | Diagnostics only: `status.log` / `status.json` so the install path is readable from Filza. SwiftPeek 0.4.1 confirmed Music's own window is at level 0 |
-| **1.1.24** | **White-screen fix:** overlay window is a **bottom strip**, never full-screen, created at its real size (no 1pt seed). Every full-screen build blanked Music at every level tried; the only non-blanking build was the only strip. Size was the variable all along |
+| **1.1.24** | **White-screen fix:** overlay window is a **bottom strip**, never full-screen, created at its real size (no 1pt seed). On device with the dock ON, `status.log` showed `loaded` and then **nothing** — no `install_ok`, no exception, no `layout` |
+| **1.1.25** | No visual change. 1.1.24's silence is only possible if Music died before the **async** status queue drained — the logger was losing exactly the line that explains a crash. Logging is now synchronous + `fsync`'d, with `install_begin` / `layout_begin` breadcrumbs so a crash is pinned to a span |
 
 Prefs are read preferring `/var/jb/.../com.music27.tweak.plist` (Dopamine), then jbroot (RootHide), then rootful.
 
@@ -65,10 +66,10 @@ Architecture: `iphoneos-arm64` (rootless, files under `/var/jb`).
 ## Verify on iOS 17 (Dopamine rootless)
 
 1. Install the CI rootless `.deb` for this version; respring.
-2. **Settings → Music27** footer must say **1.1.24**. This build does **not** force Floating Glass Dock OFF — it keeps whatever you last set, so if you turned it off to escape the 1.1.21 white screen, turn it back on.
+2. **Settings → Music27** footer must say **1.1.25**. This build does **not** force Floating Glass Dock OFF — it keeps whatever you last set, so if you turned it off to escape the 1.1.21 white screen, turn it back on.
 3. Make sure Enable Music27 and Floating Glass Dock are both **ON**, then **force-quit Music** and relaunch.
-4. Expect on 17.3 as of 1.1.24: glass pills in a bottom strip, Library usable, **no white screen**. If Music goes white, turn Floating Glass Dock back OFF and send `status.log` — a `layout` line with `full_screen=1` says the strip cap failed.
-5. `status.log` is the primary diagnostic and needs no Mac. The same lines also go to Console under the filter `Music27 1.1.24` if you have one attached.
+4. Whatever happens, send `status.log`. The **last line before it stops** is the answer: `install_begin` with no `install_ok` means the crash is inside install; `layout_begin` with no `layout` means it is inside layout; `layout` with `full_screen=1` means the strip cap failed.
+5. `status.log` is the primary diagnostic and needs no Mac. The same lines also go to Console under the filter `Music27 1.1.25` if you have one attached.
 
 ### Measured: full-screen is the variable, not window level
 
@@ -121,7 +122,7 @@ Readable in Filza. Force-quit Music, relaunch, then read `status.log`:
 `full_screen=1` on a `layout` line means the strip cap failed and a white screen
 is expected — that is the regression to watch for.
 
-Known in 1.1.24, to tighten next: the strip sits over the bottom of full-screen Now Playing and any presented sheet. It stays passthrough — only the pills take taps — but it is visible there. Hiding the dock while Music presents a modal is the follow-up, along with sizing the pills for the 17 layout and suppressing the stock mini-player peek-through.
+Known in 1.1.25, to tighten next: the strip sits over the bottom of full-screen Now Playing and any presented sheet. It stays passthrough — only the pills take taps — but it is visible there. Hiding the dock while Music presents a modal is the follow-up, along with sizing the pills for the 17 layout and suppressing the stock mini-player peek-through.
 
 ## Build
 

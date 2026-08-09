@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.24
+Version: 1.1.25
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.24 fixes the iOS 17 white screen: the dock overlay window is a bottom strip again, never full-screen. Every full-screen build blanked Music regardless of window level.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.25 keeps the 1.1.24 bottom-strip overlay and makes status logging synchronous so a crash during install can no longer erase its own evidence.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks
