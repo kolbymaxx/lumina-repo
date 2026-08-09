@@ -19,6 +19,7 @@ Music27_FILES = \
 	src/Tweak.x \
 	src/GlassTabBar.x \
 	src/AlbumControls.x \
+	src/NowPlayingGlass.x \
 	src/ColorTheme.x \
 	src/LibraryPins.x \
 	src/Helpers.m \

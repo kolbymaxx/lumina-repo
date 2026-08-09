@@ -219,6 +219,7 @@ static void M27WritePrefsDictionary(NSDictionary *dict) {
     _colorThemeEnabled = [self boolForKey:@"colorTheme" defaultValue:NO];
     _libraryPinsEnabled = [self boolForKey:@"libraryPins" defaultValue:NO];
     _hideStockChromeEnabled = [self boolForKey:@"hideStockChrome" defaultValue:YES];
+    _nowPlayingGlassEnabled = [self boolForKey:@"nowPlayingGlass" defaultValue:NO];
 }
 
 @end

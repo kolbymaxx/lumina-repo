@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.35: the stock Play/Shuffle glyphs no longer show through the glass album row — the view being hidden was only the grey capsule behind them, so the whole row container is hidden now. Tapping the mini pill asks the stock player to perform its own action instead of firing the first button it finds, which was probably pausing the song rather than opening Now Playing.</string>
+			<string>1.1.36: first pass at restyling the full-screen player toward iOS 27, behind “Restyle Full-Screen Player” (off by default). It rounds the artwork and, more importantly, records what the player is actually built from so the next build can lay it out from real numbers instead of from screenshots. 1.1.35 fixed the stock Play/Shuffle glyphs showing through the glass album row and reworked the mini-pill tap.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -63,6 +63,20 @@
 			<string>Hide Stock Tab Bar / Mini Player</string>
 		</dict>
 		<dict>
+			<key>PostNotification</key>
+			<string>com.music27.tweak/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.music27.tweak</string>
+			<key>key</key>
+			<string>nowPlayingGlass</string>
+			<key>label</key>
+			<string>Restyle Full-Screen Player</string>
+		</dict>
+		<dict>
 			<key>cell</key>
 			<string>PSSwitchCell</string>
 			<key>default</key>
@@ -108,7 +122,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.35 — album row covers the stock buttons, mini pill tap reworked. Verify on iOS 17.3 before APT.</string>
+			<string>Music27 1.1.36 — full-screen player restyle, off by default. Verify on iOS 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>

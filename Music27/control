@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.35
+Version: 1.1.36
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.35: hides the whole stock album button row instead of just the two capsule backgrounds, so the red Play/Shuffle glyphs no longer show through the glass row, and reworks the mini-pill tap to use accessibilityActivate.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.36: adds a restyle of Music’s full-screen player toward the iOS 27 look, behind a new switch that is off by default.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks

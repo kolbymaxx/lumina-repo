@@ -28,6 +28,10 @@ extern const NSInteger M27MaxPins;
 /// likely the MPMusicPlayerController bug fixed in 1.1.26, so this needs its own
 /// off switch until it has proven itself.
 @property (nonatomic, assign) BOOL hideStockChromeEnabled;
+/// Restyle Music's full-screen player toward the iOS 27 look. Defaults OFF —
+/// this is a brand new hook on a screen nothing else touches, and it should
+/// prove itself on a device before it ships switched on.
+@property (nonatomic, assign) BOOL nowPlayingGlassEnabled;
 + (instancetype)shared;
 - (void)reload;
 @end
@@ -99,7 +103,7 @@ void M27ApplyChromeForCurrentPrefs(void);
 
 /// Tweak version, in one place. Bump here and in Music27/control together.
 /// Usable inside a literal: NSLog(@"[Music27 " M27_VERSION "] ...")
-#define M27_VERSION "1.1.35"
+#define M27_VERSION "1.1.36"
 #define M27VersionString @M27_VERSION
 
 /// Jailbreak root prefix ("" / "/var/jb" / RootHide jbroot).
