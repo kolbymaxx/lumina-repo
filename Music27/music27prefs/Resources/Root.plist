@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.25: Same bottom-strip dock as 1.1.24, with synchronous logging so a crash cannot erase its own evidence. Turn Floating Glass Dock ON, force-quit Music, then send /var/jb/var/mobile/Library/Music27/status.log whatever happens — the last line before it stops is the answer.</string>
+			<string>1.1.26: Real white-screen fix. Music was crashing while installing the dock — the white/black screen was a dead app, not a rendering bug. The crashing call (MPMusicPlayerController from inside Music) is gone. Turn Floating Glass Dock ON and force-quit Music.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -94,7 +94,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.25 — bottom-strip overlay + synchronous status.log. Verify on iOS 17.3 before APT.</string>
+			<string>Music27 1.1.26 — no MPMusicPlayerController inside Music. Verify on iOS 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>

@@ -8,29 +8,32 @@
 
 // Floating Liquid Glass dock for Music.
 //
-// NEVER MAKE THE OVERLAY WINDOW FULL-SCREEN.
+// READ THIS BEFORE THEORISING ABOUT THE OVERLAY WINDOW.
 //
-// Device results on iPhone13,1 / iOS 17.3 Dopamine, dock ON:
+// 1.1.19 through 1.1.24 all assumed the "white screen" on iOS 17.3 was a
+// compositing problem and blamed, in turn: the cover plate, the window level,
+// Music's own window level, and the window's size. Each theory was built from
+// what the screen looked like, because nothing could observe what the code did.
 //
-//   1.1.19   full-screen   StatusBar-1   plate      WHITE SCREEN
-//   1.1.20   bottom strip  Normal+10     no plate   no white screen; nothing painted
-//   1.1.21   full-screen   StatusBar-1   NO plate   WHITE SCREEN
-//   1.1.22   full-screen   Normal+2      no plate   WHITE SCREEN
+// It was none of them. Music was crashing during install, and a dead app draws
+// a blank white (or black, in dark mode) window. Every window property those
+// builds adjusted belongs to code that never executed.
 //
-// Three full-screen builds at two very different levels, with and without a
-// cover plate, all blanked Music. The only build that did NOT blank it is the
-// only one whose window was a bottom strip. Size is the variable; level is not,
-// and neither is the plate. 1.1.19-1.1.22 each blamed one of those instead.
+// 1.1.26: THE CRASH IS MPMusicPlayerController, NOT THE OVERLAY WINDOW.
 //
-// A SwiftPeek 0.4.1 dump (dock OFF) also confirms Music's own window sits at
-// level 0 with nothing above it, so "Normal+2 is too low to composite" was never
-// true either.
+// 1.1.25's synchronous log, three consecutive launches on 17.3 with dock ON:
 //
-// 1.1.25 adds nothing visual. 1.1.24's run produced `loaded` and then total
-// silence with the dock ON — no install_ok, no exception, no layout — which is
-// only possible if Music died before the async status queue drained. Logging is
-// synchronous and fsync'd now, with _begin breadcrumbs, so a crash is pinned to
-// a span instead of erasing the attempt.
+//   install_begin tabs=5 -> dock_created h=118 -> (process gone)
+//
+// layout_begin never fires, so M27LayoutDock is never entered and the overlay
+// window is never created. Every window theory from 1.1.19 onward was aimed at
+// code that does not run. The white screen was Music dying at install.
+//
+// The only statement in that span not already executed before dock_created is
+// syncNowPlaying, which called MPMusicPlayerController.systemMusicPlayer — an
+// IPC client for Music, called from inside Music. That is now gone; playbackRate
+// from nowPlayingInfo gives the same answer with no IPC. Per-statement
+// breadcrumbs remain so the next log names the faulting call if this is wrong.
 //
 // 1.1.24 (strip behaviour, unchanged here):
 // - The overlay window is a BOTTOM STRIP: dock height + float gap + safe area,
@@ -82,7 +85,7 @@ static CGFloat M27FloatGap(void) {
 void M27WriteStatus(NSString *stage, NSDictionary *info) {
     NSMutableDictionary *entry = [info mutableCopy] ?: [NSMutableDictionary dictionary];
     entry[@"stage"] = stage ?: @"?";
-    entry[@"version"] = @"1.1.25";
+    entry[@"version"] = @"1.1.26";
     entry[@"ios"] = UIDevice.currentDevice.systemVersion ?: @"?";
 
     @try {
@@ -207,12 +210,10 @@ static void M27TogglePlayPause(void) {
         send(2, NULL);
         return;
     }
-    MPMusicPlayerController *player = MPMusicPlayerController.systemMusicPlayer;
-    if (player.playbackState == MPMusicPlaybackStatePlaying) {
-        [player pause];
-    } else {
-        [player play];
-    }
+    // No MPMusicPlayerController fallback: it is an IPC client for Music and we
+    // are inside Music. If MediaRemote is unavailable, do nothing rather than
+    // risk the same crash that killed install (see syncNowPlaying).
+    M27WriteStatus(@"playpause_no_mediaremote", @{});
 }
 
 static void M27NextTrack(void) {
@@ -221,7 +222,7 @@ static void M27NextTrack(void) {
         send(4, NULL);
         return;
     }
-    [MPMusicPlayerController.systemMusicPlayer skipToNextItem];
+    M27WriteStatus(@"next_no_mediaremote", @{});
 }
 
 #pragma mark - Dock controller bridge
@@ -310,27 +311,48 @@ static UIViewController *M27FindMiniPlayerViewController(UITabBarController *tbc
     M27LayoutDock(self.tabBarController, dock);
 }
 
+/// NEVER touch MPMusicPlayerController from here.
+///
+/// This runs inside Music.app. `MPMusicPlayerController.systemMusicPlayer` is an
+/// IPC client for the Music app, so asking for it from within Music itself means
+/// the process talking to itself — and on 17.3 that is where install died. The
+/// 1.1.25 log is unambiguous: install_begin → dock_created → process gone, three
+/// launches in a row, never reaching layout_begin. Everything else in that span
+/// had already run successfully before dock_created; this had not.
+///
+/// `playbackRate` from nowPlayingInfo carries the same answer with no IPC.
 - (void)syncNowPlaying {
-    NSDictionary *info = MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo;
-    NSString *title = info[MPMediaItemPropertyTitle];
-    NSString *artist = info[MPMediaItemPropertyArtist];
-    UIImage *art = nil;
-    id artwork = info[MPMediaItemPropertyArtwork];
-    if ([artwork isKindOfClass:MPMediaItemArtwork.class]) {
-        art = [(MPMediaItemArtwork *)artwork imageWithSize:CGSizeMake(120, 120)];
-    }
-    self.dock.trackTitle = title;
-    self.dock.artistName = artist;
-    self.dock.artwork = art;
+    M27WriteStatus(@"sync_begin", @{});
+    @try {
+        NSDictionary *info = MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo;
+        M27WriteStatus(@"sync_info", @{ @"keys": @((long)info.count) });
 
-    BOOL playing = (MPMusicPlayerController.systemMusicPlayer.playbackState == MPMusicPlaybackStatePlaying);
-    id rate = info[@"playbackRate"];
-    if ([rate respondsToSelector:@selector(doubleValue)]) {
-        playing = [rate doubleValue] > 0.01;
+        self.dock.trackTitle = info[MPMediaItemPropertyTitle];
+        self.dock.artistName = info[MPMediaItemPropertyArtist];
+
+        // Artwork rendering is a second known hazard — it runs the app's own
+        // image-request block. Keep it, but never let it take Music down.
+        @try {
+            id artwork = info[MPMediaItemPropertyArtwork];
+            if ([artwork isKindOfClass:MPMediaItemArtwork.class]) {
+                self.dock.artwork = [(MPMediaItemArtwork *)artwork
+                                     imageWithSize:CGSizeMake(120, 120)];
+            }
+        } @catch (__unused NSException *ex) {
+            M27WriteStatus(@"sync_art_failed", @{});
+        }
+
+        // No systemMusicPlayer. playbackRate only; absent means not playing.
+        id rate = info[@"playbackRate"];
+        self.dock.playing = [rate respondsToSelector:@selector(doubleValue)]
+                          ? ([rate doubleValue] > 0.01) : NO;
+
+        self.dock.selectedTabIndex = (NSInteger)self.tabBarController.selectedIndex;
+        [self.dock refreshChrome];
+    } @catch (NSException *ex) {
+        M27WriteStatus(@"sync_exception", @{ @"reason": ex.reason ?: @"?" });
     }
-    self.dock.playing = playing;
-    self.dock.selectedTabIndex = (NSInteger)self.tabBarController.selectedIndex;
-    [self.dock refreshChrome];
+    M27WriteStatus(@"sync_done", @{});
 }
 
 @end
@@ -568,7 +590,7 @@ static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc, CGR
         @"frame": NSStringFromCGRect(overlay.frame),
         @"level": @((double)overlay.windowLevel),
     });
-    NSLog(@"[Music27 1.1.25] overlay window created level=%.1f frame=%@ iOS=%ld",
+    NSLog(@"[Music27 1.1.26] overlay window created level=%.1f frame=%@ iOS=%ld",
           overlay.windowLevel, NSStringFromCGRect(overlay.frame), (long)M27SystemMajorVersion());
     return overlay;
 }
@@ -584,7 +606,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat screenW = CGRectGetWidth(screen);
         CGFloat screenH = CGRectGetHeight(screen);
         if (screenW < 10 || screenH < 10) {
-            NSLog(@"[Music27 1.1.25] layout skip: empty screen bounds");
+            NSLog(@"[Music27 1.1.26] layout skip: empty screen bounds");
             M27WriteStatus(@"layout_skip_bounds", @{});
             return;
         }
@@ -592,7 +614,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat height = dock.preferredHeight;
         if (height < 10 || height > 160.0) {
             height = 52.0 + 8.0 + 58.0;
-            NSLog(@"[Music27 1.1.25] preferredHeight out of range → fallback %.0f", height);
+            NSLog(@"[Music27 1.1.26] preferredHeight out of range → fallback %.0f", height);
         }
 
         // Safe-area read before the window exists, so the strip can be created at
@@ -622,7 +644,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
 
         UIView *host = overlay.rootViewController.view;
         if (!host) {
-            NSLog(@"[Music27 1.1.25] layout skip: no host view");
+            NSLog(@"[Music27 1.1.26] layout skip: no host view");
             M27WriteStatus(@"layout_skip_no_host", @{});
             return;
         }
@@ -652,7 +674,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         [dock setNeedsLayout];
         [dock layoutIfNeeded];
 
-        NSLog(@"[Music27 1.1.25] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
+        NSLog(@"[Music27 1.1.26] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
               @"dockH=%.0f safeB=%.0f gap=%.0f level=%.1f hidden=%d",
               (long)M27SystemMajorVersion(), screenW, screenH,
               NSStringFromCGRect(stripFrame), y, height, safeBottom,
@@ -707,19 +729,19 @@ static void M27RemoveDock(UITabBarController *tbc) {
 
 static void M27InstallDockIfNeeded(UITabBarController *tbc) {
     if (!tbc) {
-        NSLog(@"[Music27 1.1.25] install skip: nil tbc");
+        NSLog(@"[Music27 1.1.26] install skip: nil tbc");
         M27WriteStatus(@"install_skip_nil_tbc", @{});
         return;
     }
     if (!tbc.isViewLoaded) {
-        NSLog(@"[Music27 1.1.25] install skip: tbc not loaded");
+        NSLog(@"[Music27 1.1.26] install skip: tbc not loaded");
         M27WriteStatus(@"install_skip_tbc_unloaded", @{});
         return;
     }
     M27Prefs *prefs = M27Prefs.shared;
 
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) {
-        NSLog(@"[Music27 1.1.25] install skip: prefs en=%d dock=%d",
+        NSLog(@"[Music27 1.1.26] install skip: prefs en=%d dock=%d",
               (int)prefs.enabled, (int)prefs.glassTabBarEnabled);
         M27WriteStatus(@"install_skip_prefs", @{
             @"enabled": @(prefs.enabled),
@@ -745,18 +767,25 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             objc_setAssociatedObject(tbc, kM27DockViewKey, dock, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [dock reloadTabs];
             [dock setMode:M27DockModeExpanded animated:NO];
-            NSLog(@"[Music27 1.1.25] dock view created");
+            NSLog(@"[Music27 1.1.26] dock view created");
             M27WriteStatus(@"dock_created", @{ @"h": @((double)dock.preferredHeight) });
         }
+        // One breadcrumb per step: 1.1.25 narrowed the crash to this span but
+        // could not say which call. A missing line names the next statement.
         dock.delegate = controller;
         controller.dock = dock;
+        M27WriteStatus(@"pre_reload", @{});
         [dock reloadTabs];
+        M27WriteStatus(@"pre_setmode", @{});
         [dock setMode:M27DockModeExpanded animated:NO];
+        M27WriteStatus(@"pre_selected", @{ @"idx": @((long)tbc.selectedIndex) });
         dock.selectedTabIndex = (NSInteger)tbc.selectedIndex;
+        M27WriteStatus(@"pre_sync", @{});
         [controller syncNowPlaying];
+        M27WriteStatus(@"pre_layout", @{});
         M27LayoutDock(tbc, dock);
         M27DockOverlayWindow *ov = objc_getAssociatedObject(tbc, kM27DockWindowKey);
-        NSLog(@"[Music27 1.1.25] install OK dock=%p overlay=%p", dock, ov);
+        NSLog(@"[Music27 1.1.26] install OK dock=%p overlay=%p", dock, ov);
         M27WriteStatus(@"install_ok", @{
             @"overlay": ov ? @"yes" : @"no",
             @"overlay_level": @(ov ? (double)ov.windowLevel : -1.0),
@@ -769,7 +798,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             @"tabs": @((long)tbc.viewControllers.count),
         });
     } @catch (NSException *ex) {
-        NSLog(@"[Music27 1.1.25] install exception: %@", ex);
+        NSLog(@"[Music27 1.1.26] install exception: %@", ex);
         M27WriteStatus(@"install_exception", @{ @"reason": ex.reason ?: @"?" });
         M27RemoveDock(tbc);
     }
@@ -865,7 +894,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     %orig;
     __weak UITabBarController *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.25] TBC viewDidAppear");
+        NSLog(@"[Music27 1.1.26] TBC viewDidAppear");
         M27InstallDockIfNeeded(weakSelf);
     });
     // One delayed retry — Music finishes chrome layout after first appear.
@@ -926,7 +955,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     if (!tbc) return;
     __weak UITabBarController *weakTBC = tbc;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.25] UIWindow makeKeyAndVisible → install");
+        NSLog(@"[Music27 1.1.26] UIWindow makeKeyAndVisible → install");
         M27InstallDockIfNeeded(weakTBC);
     });
 }
