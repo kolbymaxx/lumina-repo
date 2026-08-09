@@ -85,7 +85,7 @@ static CGFloat M27FloatGap(void) {
 void M27WriteStatus(NSString *stage, NSDictionary *info) {
     NSMutableDictionary *entry = [info mutableCopy] ?: [NSMutableDictionary dictionary];
     entry[@"stage"] = stage ?: @"?";
-    entry[@"version"] = @"1.1.28";
+    entry[@"version"] = @"1.1.29";
     entry[@"ios"] = UIDevice.currentDevice.systemVersion ?: @"?";
 
     @try {
@@ -354,16 +354,64 @@ static UIViewController *M27FindMiniPlayerViewController(UITabBarController *tbc
     M27NextTrack();
 }
 
+/// First UIControl anywhere under `view`, breadth-first, depth-capped.
+/// Fallback for when hitTest finds nothing useful — Music's mini player wraps
+/// its tap target differently across versions.
+static UIControl *M27FirstControlIn(UIView *view, NSInteger depth) {
+    if (!view || depth > 4) return nil;
+    for (UIView *sub in view.subviews) {
+        if ([sub isKindOfClass:UIControl.class]) return (UIControl *)sub;
+    }
+    for (UIView *sub in view.subviews) {
+        UIControl *hit = M27FirstControlIn(sub, depth + 1);
+        if (hit) return hit;
+    }
+    return nil;
+}
+
 - (void)floatingDockDidTapNowPlaying:(M27FloatingDock *)dock {
     (void)dock;
     UIViewController *miniVC = M27FindMiniPlayerViewController(self.tabBarController);
     UIView *mini = miniVC.view;
-    if (!mini) return;
-    CGPoint point = CGPointMake(CGRectGetMidX(mini.bounds), CGRectGetMidY(mini.bounds));
-    UIView *target = [mini hitTest:point withEvent:nil] ?: mini;
-    if ([target isKindOfClass:UIControl.class]) {
-        [(UIControl *)target sendActionsForControlEvents:UIControlEventTouchUpInside];
+    if (!mini) {
+        M27WriteStatus(@"nowplaying_no_mini", @{});
+        return;
     }
+
+    // The mini player is deliberately non-interactive while the dock is up, and
+    // hitTest: refuses views with userInteractionEnabled == NO. Lift it only for
+    // the duration of this lookup so stray taps still cannot reach it.
+    BOOL wasInteractive = mini.userInteractionEnabled;
+    mini.userInteractionEnabled = YES;
+
+    UIView *target = nil;
+    @try {
+        CGPoint point = CGPointMake(CGRectGetMidX(mini.bounds), CGRectGetMidY(mini.bounds));
+        target = [mini hitTest:point withEvent:nil];
+    } @catch (__unused NSException *ex) {}
+
+    UIControl *control = [target isKindOfClass:UIControl.class]
+                       ? (UIControl *)target
+                       : M27FirstControlIn(mini, 0);
+
+    if (control) {
+        [control sendActionsForControlEvents:UIControlEventTouchUpInside];
+    } else {
+        // Nothing to drive. Record what the mini player actually looks like so
+        // the next build can target it, rather than guessing again.
+        NSInteger taps = 0;
+        for (UIGestureRecognizer *gr in mini.gestureRecognizers) {
+            if ([gr isKindOfClass:UITapGestureRecognizer.class] && gr.isEnabled) taps++;
+        }
+        M27WriteStatus(@"nowplaying_no_control", @{
+            @"target": target ? @(object_getClassName(target)) : @"nil",
+            @"mini": @(object_getClassName(mini)),
+            @"subviews": @((long)mini.subviews.count),
+            @"tap_gestures": @((long)taps),
+        });
+    }
+
+    mini.userInteractionEnabled = wasInteractive;
 }
 
 - (void)floatingDockDidChangeMode:(M27FloatingDock *)dock {
@@ -524,6 +572,7 @@ static void M27RestoreStockChromeIfNeeded(UITabBarController *tbc) {
     if (!tbc.isViewLoaded) return;
     UITabBar *bar = tbc.tabBar;
     bar.alpha = 1.0;
+    bar.layer.opacity = 1.0;
     bar.userInteractionEnabled = YES;
     bar.hidden = NO;
 
@@ -533,6 +582,7 @@ static void M27RestoreStockChromeIfNeeded(UITabBarController *tbc) {
             UIView *v = ((UIViewController *)tabsVC).view;
             if (v) {
                 v.alpha = 1.0;
+                v.layer.opacity = 1.0;
                 v.userInteractionEnabled = YES;
             }
         }
@@ -543,6 +593,7 @@ static void M27RestoreStockChromeIfNeeded(UITabBarController *tbc) {
         UIView *mini = miniVC.view;
         if (mini) {
             mini.alpha = 1.0;
+            mini.layer.opacity = 1.0;
             mini.userInteractionEnabled = YES;
         }
     }
@@ -551,8 +602,10 @@ static void M27RestoreStockChromeIfNeeded(UITabBarController *tbc) {
 /// Fade Music's own tab bar and mini player so the glass pills are not a second
 /// copy of chrome that is already on screen.
 ///
-/// Alpha only — never `hidden`, never removed, never a safe-area change. That
-/// keeps Music's layout identical and makes this trivially reversible.
+/// `layer.opacity` only — never `hidden`, never `alpha`, never removed, never a
+/// safe-area change. Music's layout is untouched and this is fully reversible.
+/// Using `alpha` would also make the views un-hit-testable, which is what broke
+/// the dock's Now Playing tap in 1.1.28.
 ///
 /// 1.1.14 attributed a black/crash regression to fading the MiniPlayer view. That
 /// build also carried the MPMusicPlayerController call that 1.1.26 proved was
@@ -567,7 +620,7 @@ static void M27HideStockChromeForDock(UITabBarController *tbc) {
 
     BOOL hidMini = NO;
     @try {
-        tbc.tabBar.alpha = 0.0;
+        tbc.tabBar.layer.opacity = 0.0;
         tbc.tabBar.userInteractionEnabled = NO;
 
         @try {
@@ -575,7 +628,7 @@ static void M27HideStockChromeForDock(UITabBarController *tbc) {
             if ([tabsVC isKindOfClass:UIViewController.class]) {
                 UIView *v = ((UIViewController *)tabsVC).view;
                 if (v) {
-                    v.alpha = 0.0;
+                    v.layer.opacity = 0.0;
                     v.userInteractionEnabled = NO;
                 }
             }
@@ -585,7 +638,12 @@ static void M27HideStockChromeForDock(UITabBarController *tbc) {
         if (miniVC.isViewLoaded && M27ClassNameHasSuffix(miniVC, @"MiniPlayerViewController")) {
             UIView *mini = miniVC.view;
             if (mini) {
-                mini.alpha = 0.0;
+                // layer.opacity, NOT alpha. `hitTest:` returns nil for any view
+                // with alpha < 0.01, and floatingDockDidTapNowPlaying hit-tests
+                // this very view to open Now Playing — 1.1.28 faded it with
+                // alpha and made the dock's mini pill dead as a result.
+                // layer.opacity hides it just as well and leaves alpha at 1.
+                mini.layer.opacity = 0.0;
                 mini.userInteractionEnabled = NO;
                 hidMini = YES;
             }
@@ -699,7 +757,7 @@ static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc, CGR
         @"frame": NSStringFromCGRect(overlay.frame),
         @"level": @((double)overlay.windowLevel),
     });
-    NSLog(@"[Music27 1.1.28] overlay window created level=%.1f frame=%@ iOS=%ld",
+    NSLog(@"[Music27 1.1.29] overlay window created level=%.1f frame=%@ iOS=%ld",
           overlay.windowLevel, NSStringFromCGRect(overlay.frame), (long)M27SystemMajorVersion());
     return overlay;
 }
@@ -715,7 +773,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat screenW = CGRectGetWidth(screen);
         CGFloat screenH = CGRectGetHeight(screen);
         if (screenW < 10 || screenH < 10) {
-            NSLog(@"[Music27 1.1.28] layout skip: empty screen bounds");
+            NSLog(@"[Music27 1.1.29] layout skip: empty screen bounds");
             M27WriteStatus(@"layout_skip_bounds", @{});
             return;
         }
@@ -723,7 +781,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat height = dock.preferredHeight;
         if (height < 10 || height > 160.0) {
             height = 52.0 + 8.0 + 58.0;
-            NSLog(@"[Music27 1.1.28] preferredHeight out of range → fallback %.0f", height);
+            NSLog(@"[Music27 1.1.29] preferredHeight out of range → fallback %.0f", height);
         }
 
         // Safe-area read before the window exists, so the strip can be created at
@@ -753,7 +811,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
 
         UIView *host = overlay.rootViewController.view;
         if (!host) {
-            NSLog(@"[Music27 1.1.28] layout skip: no host view");
+            NSLog(@"[Music27 1.1.29] layout skip: no host view");
             M27WriteStatus(@"layout_skip_no_host", @{});
             return;
         }
@@ -783,7 +841,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         [dock setNeedsLayout];
         [dock layoutIfNeeded];
 
-        NSLog(@"[Music27 1.1.28] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
+        NSLog(@"[Music27 1.1.29] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
               @"dockH=%.0f safeB=%.0f gap=%.0f level=%.1f hidden=%d",
               (long)M27SystemMajorVersion(), screenW, screenH,
               NSStringFromCGRect(stripFrame), y, height, safeBottom,
@@ -837,19 +895,19 @@ static void M27RemoveDock(UITabBarController *tbc) {
 
 static void M27InstallDockIfNeeded(UITabBarController *tbc) {
     if (!tbc) {
-        NSLog(@"[Music27 1.1.28] install skip: nil tbc");
+        NSLog(@"[Music27 1.1.29] install skip: nil tbc");
         M27WriteStatus(@"install_skip_nil_tbc", @{});
         return;
     }
     if (!tbc.isViewLoaded) {
-        NSLog(@"[Music27 1.1.28] install skip: tbc not loaded");
+        NSLog(@"[Music27 1.1.29] install skip: tbc not loaded");
         M27WriteStatus(@"install_skip_tbc_unloaded", @{});
         return;
     }
     M27Prefs *prefs = M27Prefs.shared;
 
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) {
-        NSLog(@"[Music27 1.1.28] install skip: prefs en=%d dock=%d",
+        NSLog(@"[Music27 1.1.29] install skip: prefs en=%d dock=%d",
               (int)prefs.enabled, (int)prefs.glassTabBarEnabled);
         M27WriteStatus(@"install_skip_prefs", @{
             @"enabled": @(prefs.enabled),
@@ -876,7 +934,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             objc_setAssociatedObject(tbc, kM27DockViewKey, dock, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [dock reloadTabs];
             [dock setMode:M27DockModeExpanded animated:NO];
-            NSLog(@"[Music27 1.1.28] dock view created");
+            NSLog(@"[Music27 1.1.29] dock view created");
             M27WriteStatus(@"dock_created", @{ @"h": @((double)dock.preferredHeight) });
         }
         // One breadcrumb per step: 1.1.25 narrowed the crash to this span but
@@ -897,7 +955,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
         M27WriteStatus(@"pre_layout", @{});
         M27LayoutDock(tbc, dock);
         M27DockOverlayWindow *ov = objc_getAssociatedObject(tbc, kM27DockWindowKey);
-        NSLog(@"[Music27 1.1.28] install OK dock=%p overlay=%p", dock, ov);
+        NSLog(@"[Music27 1.1.29] install OK dock=%p overlay=%p", dock, ov);
         M27WriteStatus(@"install_ok", @{
             @"overlay": ov ? @"yes" : @"no",
             @"overlay_level": @(ov ? (double)ov.windowLevel : -1.0),
@@ -910,7 +968,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             @"tabs": @((long)tbc.viewControllers.count),
         });
     } @catch (NSException *ex) {
-        NSLog(@"[Music27 1.1.28] install exception: %@", ex);
+        NSLog(@"[Music27 1.1.29] install exception: %@", ex);
         M27WriteStatus(@"install_exception", @{ @"reason": ex.reason ?: @"?" });
         M27RemoveDock(tbc);
     }
@@ -1006,7 +1064,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     %orig;
     __weak UITabBarController *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.28] TBC viewDidAppear");
+        NSLog(@"[Music27 1.1.29] TBC viewDidAppear");
         M27InstallDockIfNeeded(weakSelf);
     });
     // One delayed retry — Music finishes chrome layout after first appear.
@@ -1067,7 +1125,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     if (!tbc) return;
     __weak UITabBarController *weakTBC = tbc;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.28] UIWindow makeKeyAndVisible → install");
+        NSLog(@"[Music27 1.1.29] UIWindow makeKeyAndVisible → install");
         M27InstallDockIfNeeded(weakTBC);
     });
 }

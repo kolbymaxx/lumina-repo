@@ -48,7 +48,8 @@ Settings live under **Settings → Music27**.
 | **1.1.25** | Synchronous + `fsync`'d logging with breadcrumbs. Caught it: three launches, all `install_begin` → `dock_created` → **process gone**, never reaching `layout_begin` |
 | **1.1.26** | **Real fix.** Music was *crashing* during install; the white/black screen was a dead app, not a compositing bug. Cause: `MPMusicPlayerController.systemMusicPlayer` in `syncNowPlaying` — an IPC client for Music, called from inside Music. Removed everywhere. **Dock renders on 17.3 for the first time** |
 | **1.1.27** | Stray sixth tab: Music reports **6 view controllers but shows 5 tabs**, and the extra one rendered as "Tab 5". Dock indices are now mapped to the controllers that actually own a tab bar item |
-| **1.1.28** | Fades Music's own tab bar + mini player behind the dock so the bottom is not two copies of the same chrome. Alpha only — never `hidden`, never removed, no safe-area change. Behind its own `hideStockChrome` toggle |
+| **1.1.28** | Hides Music's own tab bar + mini player behind the dock. Worked — but hiding with `alpha` also made the mini player **un-hit-testable**, so the dock's Now Playing pill went dead |
+| **1.1.29** | Hides via `layer.opacity` instead of `alpha`. `hitTest:` refuses any view with `alpha < 0.01`, and the Now Playing tap is forwarded by hit-testing the stock mini player — so `alpha` was hiding the very thing it needed to find. Adds a UIControl-search fallback and logs `nowplaying_no_control` when nothing can be driven |
 
 Prefs are read preferring `/var/jb/.../com.music27.tweak.plist` (Dopamine), then jbroot (RootHide), then rootful.
 

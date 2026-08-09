@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.28
+Version: 1.1.29
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.28: fades Music's stock tab bar and mini player while the glass dock is up, behind its own toggle.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.29: fixes the dead Now Playing pill — 1.1.28 hid the stock mini player with alpha, which also made it un-hit-testable.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks
