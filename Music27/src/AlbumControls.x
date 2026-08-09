@@ -160,6 +160,8 @@ static void M27FireControl(UIView *control) {
 @property (nonatomic, weak) UIView *stockShuffle;
 @property (nonatomic, weak) UIView *stockDownload;
 @property (nonatomic, strong) NSTimer *mirrorTimer;
+@property (nonatomic, copy) NSString *lastDownloadLabel;
+@property (nonatomic, assign) BOOL downloadMirrored;
 - (BOOL)mirrorDownloadState;
 @end
 
@@ -275,46 +277,62 @@ static void M27FireControl(UIView *control) {
 
 #pragma mark - Download state
 
-/// The stock control's current glyph, whatever it is.
+/// Draw the stock control into an image, whatever it happens to be made of.
 ///
-/// The download button is not one icon, it is a state machine: download, then a
-/// stop control while the download runs, then done. Music already draws every
-/// one of those. Rather than reimplement that state machine — and get the
-/// transitions wrong, and only in English — copy the glyph Music is currently
-/// showing. Any state Music adds later comes along for free.
-static UIImage *M27CurrentGlyph(UIView *stock, NSInteger depth) {
-    if (!stock || depth > 3) return nil;
-    if ([stock isKindOfClass:UIButton.class]) {
-        UIImage *image = [(UIButton *)stock imageForState:UIControlStateNormal]
-                      ?: ((UIButton *)stock).currentImage;
-        if (image) return image;
+/// 1.1.38 tried to find a UIImage on the stock control and mirror it, and
+/// `album_download_glyph` logged exactly zero times: MusicCoreUI.SymbolButton is
+/// not a UIButton and keeps no UIImageView — it draws its symbol itself. There
+/// is no image to borrow.
+///
+/// So render its layer instead. That captures whatever Music is showing right
+/// now, including the red progress ring mid-download, in every language, for
+/// states Apple has not shipped yet.
+///
+/// The control is hidden with `layer.opacity = 0`, and renderInContext: honours
+/// that, so opacity is lifted for the draw and restored immediately. Nothing
+/// paints between the two, so there is no flash.
+static UIImage *M27SnapshotStockGlyph(UIView *stock) {
+    if (!stock) return nil;
+    CGRect bounds = stock.bounds;
+    if (bounds.size.width < 4.0 || bounds.size.height < 4.0) return nil;
+
+    float savedOpacity = stock.layer.opacity;
+    stock.layer.opacity = 1.0;
+    UIImage *shot = nil;
+    @try {
+        UIGraphicsImageRenderer *renderer =
+            [[UIGraphicsImageRenderer alloc] initWithBounds:bounds];
+        shot = [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+            [stock.layer renderInContext:ctx.CGContext];
+        }];
+    } @catch (__unused NSException *ex) {
+    } @finally {
+        stock.layer.opacity = savedOpacity;
     }
-    if ([stock isKindOfClass:UIImageView.class]) {
-        UIImage *image = ((UIImageView *)stock).image;
-        if (image && image.size.width > 4.0) return image;
-    }
-    for (UIView *sub in stock.subviews) {
-        UIImage *hit = M27CurrentGlyph(sub, depth + 1);
-        if (hit) return hit;
-    }
-    return nil;
+    return shot;
 }
 
-/// Returns YES when the glyph changed, so callers can log only real transitions.
+/// Returns YES when the state changed, so callers log only real transitions.
 - (BOOL)mirrorDownloadState {
     UIView *stock = self.stockDownload;
     if (!stock) return NO;
 
-    UIImage *glyph = M27CurrentGlyph(stock, 0);
-    if (!glyph) return NO;
+    // The accessibility label is the change signal, not the content: it moves
+    // when Music switches between download / stop / done. Re-rendering only on a
+    // change keeps this a string compare once a second rather than a redraw.
+    NSString *label = stock.accessibilityLabel ?: @"";
+    if ([label isEqualToString:self.lastDownloadLabel] && self.downloadMirrored) return NO;
 
-    // Music's own glyph, drawn in our tint rather than its original colour.
-    UIImage *templated = [glyph imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-    UIImage *current = [self.downloadButton imageForState:UIControlStateNormal];
-    if (current == templated) return NO;
+    UIImage *shot = M27SnapshotStockGlyph(stock);
+    if (!shot) return NO;
 
-    [self.downloadButton setImage:templated forState:UIControlStateNormal];
+    // Original rendering mode, not template — the red of the stop ring is part
+    // of what the state means.
+    [self.downloadButton setImage:[shot imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal]
+                         forState:UIControlStateNormal];
     self.downloadButton.accessibilityLabel = stock.accessibilityLabel;
+    self.lastDownloadLabel = label;
+    self.downloadMirrored = YES;
     return YES;
 }
 
@@ -339,6 +357,7 @@ static UIImage *M27CurrentGlyph(UIView *stock, NSInteger depth) {
         if ([strongSelf mirrorDownloadState]) {
             M27WriteStatus(@"album_download_glyph", @{
                 @"label": strongSelf.downloadButton.accessibilityLabel ?: @"-",
+                @"stock": M27DescribeControl(strongSelf.stockDownload),
             });
         }
     }];
@@ -497,7 +516,12 @@ static void M27InstallAlbumControls(UIViewController *vc) {
     }
     row.stockPlay = play;
     row.stockShuffle = shuffle;
-    row.stockDownload = download;
+    // A different album means a different download control in a different state.
+    if (row.stockDownload != download) {
+        row.stockDownload = download;
+        row.downloadMirrored = NO;
+        row.lastDownloadLabel = nil;
+    }
     row.frame = CGRectMake(minX, top, maxX - minX, kM27PlayHeight);
     [host bringSubviewToFront:row];
     // Pick up whatever state the stock download control is in right now, rather

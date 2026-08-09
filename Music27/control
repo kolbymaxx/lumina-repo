@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.38
+Version: 1.1.39
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.38: the pill now shows the last song you played, paused, instead of vanishing; tapping it no longer toggles an off-screen shuffle control; the album download button mirrors Music’s own download state; and the stock buttons stop flashing before they are hidden.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.39: tapping the mini pill no longer plays or pauses — there is no button on the mini player that opens the player, so it now does nothing instead of firing the wrong one, and records what is actually there. The album download button mirrors Music’s own control by rendering it, including the stop ring mid-download.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks

@@ -531,36 +531,41 @@ static NSString *M27PresentationSelectors(NSObject *obj) {
         }
     }
 
-    UIControl *hitControl = [target isKindOfClass:UIControl.class] ? (UIControl *)target : nil;
-    if (hitControl && !M27ControlIsPlausibleTarget(hitControl, mini)) hitControl = nil;
-    UIControl *control = hitControl ?: M27FirstControlIn(mini, 0, mini);
-
-    if (control) {
-        [control sendActionsForControlEvents:UIControlEventTouchUpInside];
-        M27WriteStatus(@"nowplaying_sent_action", @{
-            @"control": @(object_getClassName(control)),
-            @"frame": NSStringFromCGRect(control.frame),
-        });
-    } else {
-        // Everything failed. Say exactly what is here so the next build calls
-        // the right thing instead of guessing a fifth time.
-        NSMutableArray<NSString *> *grDesc = [NSMutableArray array];
-        for (UIGestureRecognizer *gr in taps) {
-            [grDesc addObject:[NSString stringWithFormat:@"%@@%@",
-                               NSStringFromClass(gr.class),
-                               gr.view ? NSStringFromClass(gr.view.class) : @"?"]];
-            if (grDesc.count >= 6) break;
-        }
-        M27WriteStatus(@"nowplaying_no_control", @{
-            @"target": target ? @(object_getClassName(target)) : @"nil",
-            @"mini": @(object_getClassName(mini)),
-            @"tap_gestures": @((long)taps.count),
-            @"gestures": grDesc.count ? [grDesc componentsJoinedByString:@" "] : @"none",
-            @"mini_sels": M27PresentationSelectors(miniVC),
-            @"parent_sels": M27PresentationSelectors(miniVC.parentViewController),
-            @"tbc_sels": M27PresentationSelectors(self.tabBarController),
-        });
+    // NO CONTROL FALLBACK. FIRING ANY BUTTON HERE IS WRONG BY CONSTRUCTION.
+    //
+    // Two builds, two different wrong buttons:
+    //
+    //   1.1.37  NowPlayingShuffleButton   {{-28, 14}, {28, 28}}   → toggled shuffle
+    //   1.1.38  NowPlayingTransportButton {{0, 17.7}, {21, 21}}   → played/paused
+    //
+    // 1.1.38 rejected the off-screen one and simply found the next candidate,
+    // which was play/pause. That is the tell: the mini player has no control
+    // that expands it, so "find a control and fire it" cannot ever be right,
+    // and every refinement of the search just picks a different wrong button.
+    // Doing nothing is strictly better than performing an action the user did
+    // not ask for.
+    //
+    // It also cost a round of evidence. The recon below only ran when no control
+    // was found, and a control was always found, so the gesture inventory this
+    // was supposed to collect never got written. Diagnostics must not sit behind
+    // the success of the thing they are diagnosing.
+    NSMutableArray<NSString *> *grDesc = [NSMutableArray array];
+    for (UIGestureRecognizer *gr in taps) {
+        [grDesc addObject:[NSString stringWithFormat:@"%@@%@",
+                           NSStringFromClass(gr.class),
+                           gr.view ? NSStringFromClass(gr.view.class) : @"?"]];
+        if (grDesc.count >= 6) break;
     }
+    M27WriteStatus(@"nowplaying_no_control", @{
+        @"target": target ? @(object_getClassName(target)) : @"nil",
+        @"mini": @(object_getClassName(mini)),
+        @"tap_gestures": @((long)taps.count),
+        @"gestures": grDesc.count ? [grDesc componentsJoinedByString:@" "] : @"none",
+        @"mini_sels": M27PresentationSelectors(miniVC),
+        @"parent_sels": M27PresentationSelectors(miniVC.parentViewController),
+        @"tbc_sels": M27PresentationSelectors(self.tabBarController),
+        @"mini_super": mini.superview ? @(object_getClassName(mini.superview)) : @"nil",
+    });
 
     mini.userInteractionEnabled = wasInteractive;
 }
