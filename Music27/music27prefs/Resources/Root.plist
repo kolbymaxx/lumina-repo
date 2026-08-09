@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.22: White-screen fix. The overlay window sits at Normal+2 again (the 1.1.12 level); StatusBar level is what blanked Music, not the cover plate. Your Floating Glass Dock setting is kept as-is; force-quit Music after changing it.</string>
+			<string>1.1.23: Diagnostics build. SwiftPeek proved the dock's overlay window is never created on iOS 17.3, so this writes what the install path did to /var/jb/var/mobile/Library/Music27/status.log — readable in Filza. No visual change from 1.1.22.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -94,7 +94,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.22 — Normal+2 passthrough dock (no cover plate). Verify on iOS 17.3 before APT.</string>
+			<string>Music27 1.1.23 — install diagnostics to status.log. Verify on iOS 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>

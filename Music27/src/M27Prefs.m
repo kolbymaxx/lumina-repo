@@ -37,6 +37,10 @@ static NSString *M27JailbreakRootPrefix(void) {
     return prefix;
 }
 
+NSString *M27JailbreakRoot(void) {
+    return M27JailbreakRootPrefix();
+}
+
 static NSArray<NSString *> *M27PrefsCandidatePaths(void) {
     NSString *rel = @"/var/mobile/Library/Preferences/com.music27.tweak.plist";
     NSMutableArray<NSString *> *paths = [NSMutableArray array];

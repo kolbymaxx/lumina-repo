@@ -26,12 +26,19 @@ static void M27ClearPinsCallback(CFNotificationCenterRef center, void *observer,
         [M27Prefs.shared reload];
         (void)M27PinStore.shared;
         (void)M27ColorTheme.shared;
-        // Console filter: Music27 1.1.22 — proves dylib loaded after install.
-        NSLog(@"[Music27 1.1.22] loaded into %@ iOS=%@ enabled=%d glassDock=%d",
+        // Console filter: Music27 1.1.23 — proves dylib loaded after install.
+        NSLog(@"[Music27 1.1.23] loaded into %@ iOS=%@ enabled=%d glassDock=%d",
               NSBundle.mainBundle.bundleIdentifier ?: @"?",
               UIDevice.currentDevice.systemVersion,
               (int)M27Prefs.shared.enabled,
               (int)M27Prefs.shared.glassTabBarEnabled);
+        // No "loaded" line in status.log means the dylib was never injected —
+        // a different problem from the dock declining to install.
+        M27WriteStatus(@"loaded", @{
+            @"bundle": NSBundle.mainBundle.bundleIdentifier ?: @"?",
+            @"enabled": @(M27Prefs.shared.enabled),
+            @"glassTabBar": @(M27Prefs.shared.glassTabBarEnabled),
+        });
 
         CFNotificationCenterAddObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),

@@ -91,4 +91,13 @@ BOOL M27IsProtectedMusicHost(NSObject *_Nullable obj);
 /// Tear down / reinstall chrome from current prefs (kill switch + dock toggle).
 void M27ApplyChromeForCurrentPrefs(void);
 
+/// Jailbreak root prefix ("" / "/var/jb" / RootHide jbroot).
+NSString *M27JailbreakRoot(void);
+
+/// Append one line to $jbroot/var/mobile/Library/Music27/status.log and mirror
+/// the latest state to status.json. Readable in Filza — the point is that the
+/// dock's install path can be diagnosed from the phone, without a Console
+/// session attached to a Mac.
+void M27WriteStatus(NSString *stage, NSDictionary *info);
+
 NS_ASSUME_NONNULL_END
