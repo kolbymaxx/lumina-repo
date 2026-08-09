@@ -14,6 +14,14 @@ tools: annotate / query / **ranked targets** / **Theos scaffold** —
 [`docs/READ_API.md`](docs/READ_API.md), [`docs/TWEAK_WORKFLOW.md`](docs/TWEAK_WORKFLOW.md),
 `PYTHONPATH=tools python3 -m swiftpeek …`. Not published to APT.
 
+## Where this is going
+
+SwiftPeek is being grown from a debugging tool into the support library modern
+tweaks build on — see [`docs/DEPENDENCY_PLAN.md`](docs/DEPENDENCY_PLAN.md) for
+the API surface, the packaging path (shared source → static lib → `Depends:`
+package), and the **hazard registry** of things that crash or blank apps on
+iOS 17. Every entry in that registry cost a device cycle to learn.
+
 ## Targets
 
 Per-process, pref-gated, all **off by default except Music**. A process that is
