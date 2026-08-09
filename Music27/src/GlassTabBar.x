@@ -85,7 +85,7 @@ static CGFloat M27FloatGap(void) {
 void M27WriteStatus(NSString *stage, NSDictionary *info) {
     NSMutableDictionary *entry = [info mutableCopy] ?: [NSMutableDictionary dictionary];
     entry[@"stage"] = stage ?: @"?";
-    entry[@"version"] = @"1.1.29";
+    entry[@"version"] = @"1.1.30";
     entry[@"ios"] = UIDevice.currentDevice.systemVersion ?: @"?";
 
     @try {
@@ -190,19 +190,65 @@ static const void *kM27LayoutGuardKey = &kM27LayoutGuardKey;
 
 #pragma mark - MediaRemote (soft-linked)
 
+// Music does NOT publish through MPNowPlayingInfoCenter. Every build from
+// 1.1.24 onward logged `sync_info keys=0` — an empty dictionary — because that
+// API is how an app *publishes* its state, and Music uses MediaRemote instead.
+// Read back from inside Music it will always be empty, which is why the dock
+// showed "Not Playing" with no artwork and never updated.
+//
+// MediaRemote is the right source and is already proven safe in this process:
+// the dock's play/pause and skip run through MRMediaRemoteSendCommand.
 typedef void (*M27MRSendCommandFunc)(unsigned int command, CFDictionaryRef options);
+typedef void (*M27MRGetNowPlayingInfoFunc)(dispatch_queue_t queue,
+                                           void (^handler)(CFDictionaryRef info));
+typedef void (*M27MRRegisterNotificationsFunc)(dispatch_queue_t queue);
+
+static void *M27MediaRemoteHandle(void) {
+    static void *handle;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        handle = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote",
+                        RTLD_LAZY);
+    });
+    return handle;
+}
 
 static M27MRSendCommandFunc M27MRSendCommand(void) {
     static M27MRSendCommandFunc fn;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        void *handle = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY);
-        if (handle) {
-            fn = (M27MRSendCommandFunc)dlsym(handle, "MRMediaRemoteSendCommand");
-        }
+        void *h = M27MediaRemoteHandle();
+        if (h) fn = (M27MRSendCommandFunc)dlsym(h, "MRMediaRemoteSendCommand");
     });
     return fn;
 }
+
+static M27MRGetNowPlayingInfoFunc M27MRGetNowPlayingInfo(void) {
+    static M27MRGetNowPlayingInfoFunc fn;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        void *h = M27MediaRemoteHandle();
+        if (h) fn = (M27MRGetNowPlayingInfoFunc)dlsym(h, "MRMediaRemoteGetNowPlayingInfo");
+    });
+    return fn;
+}
+
+static M27MRRegisterNotificationsFunc M27MRRegisterNotifications(void) {
+    static M27MRRegisterNotificationsFunc fn;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        void *h = M27MediaRemoteHandle();
+        if (h) fn = (M27MRRegisterNotificationsFunc)
+                    dlsym(h, "MRMediaRemoteRegisterForNowPlayingNotifications");
+    });
+    return fn;
+}
+
+// MediaRemote's dictionary keys are these literal strings.
+static NSString *const kM27MRTitle = @"kMRMediaRemoteNowPlayingInfoTitle";
+static NSString *const kM27MRArtist = @"kMRMediaRemoteNowPlayingInfoArtist";
+static NSString *const kM27MRArtworkData = @"kMRMediaRemoteNowPlayingInfoArtworkData";
+static NSString *const kM27MRPlaybackRate = @"kMRMediaRemoteNowPlayingInfoPlaybackRate";
 
 static void M27TogglePlayPause(void) {
     M27MRSendCommandFunc send = M27MRSendCommand();
@@ -241,6 +287,7 @@ static UIViewController *M27FindMiniPlayerViewController(UITabBarController *tbc
 /// Push the tab bar controller's selection into the dock, index-mapped.
 - (void)syncSelection;
 - (void)syncNowPlaying;
+- (void)beginObservingNowPlaying;
 @end
 
 @implementation M27DockController
@@ -418,48 +465,118 @@ static UIControl *M27FirstControlIn(UIView *view, NSInteger depth) {
     M27LayoutDock(self.tabBarController, dock);
 }
 
-/// NEVER touch MPMusicPlayerController from here.
-///
-/// This runs inside Music.app. `MPMusicPlayerController.systemMusicPlayer` is an
-/// IPC client for the Music app, so asking for it from within Music itself means
-/// the process talking to itself — and on 17.3 that is where install died. The
-/// 1.1.25 log is unambiguous: install_begin → dock_created → process gone, three
-/// launches in a row, never reaching layout_begin. Everything else in that span
-/// had already run successfully before dock_created; this had not.
-///
-/// `playbackRate` from nowPlayingInfo carries the same answer with no IPC.
-- (void)syncNowPlaying {
-    M27WriteStatus(@"sync_begin", @{});
-    @try {
-        NSDictionary *info = MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo;
-        M27WriteStatus(@"sync_info", @{ @"keys": @((long)info.count) });
-
-        self.dock.trackTitle = info[MPMediaItemPropertyTitle];
-        self.dock.artistName = info[MPMediaItemPropertyArtist];
-
-        // Artwork rendering is a second known hazard — it runs the app's own
-        // image-request block. Keep it, but never let it take Music down.
-        @try {
-            id artwork = info[MPMediaItemPropertyArtwork];
-            if ([artwork isKindOfClass:MPMediaItemArtwork.class]) {
-                self.dock.artwork = [(MPMediaItemArtwork *)artwork
-                                     imageWithSize:CGSizeMake(120, 120)];
-            }
-        } @catch (__unused NSException *ex) {
-            M27WriteStatus(@"sync_art_failed", @{});
+/// Collect up to two non-empty label strings and the first real image under
+/// `view`. Fallback for when MediaRemote returns nothing — the stock mini
+/// player already has the data rendered in it, and SwiftPeek confirmed those
+/// labels are readable (it dumped "Gypsy" / "Lady Gaga" from this very view).
+static void M27ScrapeMiniPlayer(UIView *view, NSInteger depth,
+                                NSMutableArray<NSString *> *texts, UIImage **image) {
+    if (!view || depth > 5) return;
+    for (UIView *sub in view.subviews) {
+        if ([sub isKindOfClass:UILabel.class]) {
+            NSString *t = ((UILabel *)sub).text;
+            if (t.length && ![texts containsObject:t] && texts.count < 2) [texts addObject:t];
+        } else if ([sub isKindOfClass:UIImageView.class] && !*image) {
+            UIImage *img = ((UIImageView *)sub).image;
+            if (img && img.size.width > 8.0) *image = img;
         }
+        M27ScrapeMiniPlayer(sub, depth + 1, texts, image);
+    }
+}
 
-        // No systemMusicPlayer. playbackRate only; absent means not playing.
-        id rate = info[@"playbackRate"];
+/// NEVER touch MPMusicPlayerController from here — it is an IPC client for the
+/// Music app and this code runs inside Music. That is what crashed install
+/// until 1.1.26.
+- (void)applyNowPlayingInfo:(NSDictionary *)info {
+    if (info.count > 0) {
+        NSString *title = info[kM27MRTitle];
+        NSString *artist = info[kM27MRArtist];
+        if (title.length) self.dock.trackTitle = title;
+        if (artist.length) self.dock.artistName = artist;
+
+        @try {
+            NSData *art = info[kM27MRArtworkData];
+            if ([art isKindOfClass:NSData.class] && art.length) {
+                UIImage *image = [UIImage imageWithData:art];
+                if (image) self.dock.artwork = image;
+            }
+        } @catch (__unused NSException *ex) {}
+
+        id rate = info[kM27MRPlaybackRate];
         self.dock.playing = [rate respondsToSelector:@selector(doubleValue)]
                           ? ([rate doubleValue] > 0.01) : NO;
+        M27WriteStatus(@"sync_applied", @{
+            @"src": @"mediaremote",
+            @"title": title.length ? @"yes" : @"no",
+            @"artwork": self.dock.artwork ? @"yes" : @"no",
+        });
+    } else {
+        UIViewController *miniVC = M27FindMiniPlayerViewController(self.tabBarController);
+        NSMutableArray<NSString *> *texts = [NSMutableArray array];
+        UIImage *image = nil;
+        if (miniVC.isViewLoaded) M27ScrapeMiniPlayer(miniVC.view, 0, texts, &image);
+        if (texts.count > 0) self.dock.trackTitle = texts[0];
+        if (texts.count > 1) self.dock.artistName = texts[1];
+        if (image) self.dock.artwork = image;
+        M27WriteStatus(@"sync_applied", @{
+            @"src": @"scrape",
+            @"texts": @((long)texts.count),
+            @"artwork": image ? @"yes" : @"no",
+        });
+    }
 
-        [self syncSelection];
-        [self.dock refreshChrome];
+    [self syncSelection];
+    [self.dock refreshChrome];
+    M27WriteStatus(@"sync_done", @{});
+}
+
+- (void)syncNowPlaying {
+    M27WriteStatus(@"sync_begin", @{});
+
+    M27MRGetNowPlayingInfoFunc get = M27MRGetNowPlayingInfo();
+    if (!get) {
+        M27WriteStatus(@"sync_no_mediaremote", @{});
+        [self applyNowPlayingInfo:@{}];
+        return;
+    }
+
+    __weak typeof(self) weakSelf = self;
+    @try {
+        get(dispatch_get_main_queue(), ^(CFDictionaryRef raw) {
+            NSDictionary *info = raw ? [(__bridge NSDictionary *)raw copy] : nil;
+            M27WriteStatus(@"sync_info", @{ @"keys": @((long)info.count) });
+            [weakSelf applyNowPlayingInfo:info ?: @{}];
+        });
     } @catch (NSException *ex) {
         M27WriteStatus(@"sync_exception", @{ @"reason": ex.reason ?: @"?" });
+        [self applyNowPlayingInfo:@{}];
     }
-    M27WriteStatus(@"sync_done", @{});
+}
+
+/// The old refresh trigger was a hook on `MPNowPlayingInfoCenter
+/// setNowPlayingInfo:` — which Music never calls, so the dock's text never
+/// changed after the first layout. MediaRemote posts these instead.
+- (void)beginObservingNowPlaying {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        M27MRRegisterNotificationsFunc reg = M27MRRegisterNotifications();
+        if (reg) reg(dispatch_get_main_queue());
+    });
+    NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
+    for (NSString *name in @[ @"kMRMediaRemoteNowPlayingInfoDidChangeNotification",
+                              @"kMRMediaRemoteNowPlayingApplicationIsPlayingDidChangeNotification" ]) {
+        [nc removeObserver:self name:name object:nil];
+        [nc addObserver:self selector:@selector(nowPlayingChanged:) name:name object:nil];
+    }
+}
+
+- (void)nowPlayingChanged:(NSNotification *)note {
+    (void)note;
+    [self syncNowPlaying];
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
 }
 
 @end
@@ -757,7 +874,7 @@ static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc, CGR
         @"frame": NSStringFromCGRect(overlay.frame),
         @"level": @((double)overlay.windowLevel),
     });
-    NSLog(@"[Music27 1.1.29] overlay window created level=%.1f frame=%@ iOS=%ld",
+    NSLog(@"[Music27 1.1.30] overlay window created level=%.1f frame=%@ iOS=%ld",
           overlay.windowLevel, NSStringFromCGRect(overlay.frame), (long)M27SystemMajorVersion());
     return overlay;
 }
@@ -773,7 +890,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat screenW = CGRectGetWidth(screen);
         CGFloat screenH = CGRectGetHeight(screen);
         if (screenW < 10 || screenH < 10) {
-            NSLog(@"[Music27 1.1.29] layout skip: empty screen bounds");
+            NSLog(@"[Music27 1.1.30] layout skip: empty screen bounds");
             M27WriteStatus(@"layout_skip_bounds", @{});
             return;
         }
@@ -781,7 +898,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat height = dock.preferredHeight;
         if (height < 10 || height > 160.0) {
             height = 52.0 + 8.0 + 58.0;
-            NSLog(@"[Music27 1.1.29] preferredHeight out of range → fallback %.0f", height);
+            NSLog(@"[Music27 1.1.30] preferredHeight out of range → fallback %.0f", height);
         }
 
         // Safe-area read before the window exists, so the strip can be created at
@@ -811,7 +928,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
 
         UIView *host = overlay.rootViewController.view;
         if (!host) {
-            NSLog(@"[Music27 1.1.29] layout skip: no host view");
+            NSLog(@"[Music27 1.1.30] layout skip: no host view");
             M27WriteStatus(@"layout_skip_no_host", @{});
             return;
         }
@@ -841,7 +958,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         [dock setNeedsLayout];
         [dock layoutIfNeeded];
 
-        NSLog(@"[Music27 1.1.29] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
+        NSLog(@"[Music27 1.1.30] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
               @"dockH=%.0f safeB=%.0f gap=%.0f level=%.1f hidden=%d",
               (long)M27SystemMajorVersion(), screenW, screenH,
               NSStringFromCGRect(stripFrame), y, height, safeBottom,
@@ -895,19 +1012,19 @@ static void M27RemoveDock(UITabBarController *tbc) {
 
 static void M27InstallDockIfNeeded(UITabBarController *tbc) {
     if (!tbc) {
-        NSLog(@"[Music27 1.1.29] install skip: nil tbc");
+        NSLog(@"[Music27 1.1.30] install skip: nil tbc");
         M27WriteStatus(@"install_skip_nil_tbc", @{});
         return;
     }
     if (!tbc.isViewLoaded) {
-        NSLog(@"[Music27 1.1.29] install skip: tbc not loaded");
+        NSLog(@"[Music27 1.1.30] install skip: tbc not loaded");
         M27WriteStatus(@"install_skip_tbc_unloaded", @{});
         return;
     }
     M27Prefs *prefs = M27Prefs.shared;
 
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) {
-        NSLog(@"[Music27 1.1.29] install skip: prefs en=%d dock=%d",
+        NSLog(@"[Music27 1.1.30] install skip: prefs en=%d dock=%d",
               (int)prefs.enabled, (int)prefs.glassTabBarEnabled);
         M27WriteStatus(@"install_skip_prefs", @{
             @"enabled": @(prefs.enabled),
@@ -934,7 +1051,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             objc_setAssociatedObject(tbc, kM27DockViewKey, dock, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [dock reloadTabs];
             [dock setMode:M27DockModeExpanded animated:NO];
-            NSLog(@"[Music27 1.1.29] dock view created");
+            NSLog(@"[Music27 1.1.30] dock view created");
             M27WriteStatus(@"dock_created", @{ @"h": @((double)dock.preferredHeight) });
         }
         // One breadcrumb per step: 1.1.25 narrowed the crash to this span but
@@ -950,12 +1067,13 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             @"visible": @((long)[controller visibleTabIndexes].count),
         });
         [controller syncSelection];
+        [controller beginObservingNowPlaying];
         M27WriteStatus(@"pre_sync", @{});
         [controller syncNowPlaying];
         M27WriteStatus(@"pre_layout", @{});
         M27LayoutDock(tbc, dock);
         M27DockOverlayWindow *ov = objc_getAssociatedObject(tbc, kM27DockWindowKey);
-        NSLog(@"[Music27 1.1.29] install OK dock=%p overlay=%p", dock, ov);
+        NSLog(@"[Music27 1.1.30] install OK dock=%p overlay=%p", dock, ov);
         M27WriteStatus(@"install_ok", @{
             @"overlay": ov ? @"yes" : @"no",
             @"overlay_level": @(ov ? (double)ov.windowLevel : -1.0),
@@ -968,7 +1086,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             @"tabs": @((long)tbc.viewControllers.count),
         });
     } @catch (NSException *ex) {
-        NSLog(@"[Music27 1.1.29] install exception: %@", ex);
+        NSLog(@"[Music27 1.1.30] install exception: %@", ex);
         M27WriteStatus(@"install_exception", @{ @"reason": ex.reason ?: @"?" });
         M27RemoveDock(tbc);
     }
@@ -1064,7 +1182,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     %orig;
     __weak UITabBarController *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.29] TBC viewDidAppear");
+        NSLog(@"[Music27 1.1.30] TBC viewDidAppear");
         M27InstallDockIfNeeded(weakSelf);
     });
     // One delayed retry — Music finishes chrome layout after first appear.
@@ -1125,7 +1243,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     if (!tbc) return;
     __weak UITabBarController *weakTBC = tbc;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.29] UIWindow makeKeyAndVisible → install");
+        NSLog(@"[Music27 1.1.30] UIWindow makeKeyAndVisible → install");
         M27InstallDockIfNeeded(weakTBC);
     });
 }

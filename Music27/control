@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.29
+Version: 1.1.30
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.29: fixes the dead Now Playing pill — 1.1.28 hid the stock mini player with alpha, which also made it un-hit-testable.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.30: the dock now shows the real track and artwork. Music publishes via MediaRemote, not MPNowPlayingInfoCenter, so the old source was always empty.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks

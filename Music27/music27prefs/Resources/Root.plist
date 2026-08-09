@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.29: Fixes the dead Now Playing pill. The stock chrome is now hidden with layer opacity instead of alpha, so tapping the mini pill can still open Now Playing. If anything misbehaves, turn Hide Stock Tab Bar / Mini Player OFF — the dock stays.</string>
+			<string>1.1.30: The dock's mini player now shows the real track, artist and artwork, and updates when the song changes. Music publishes its now-playing state through MediaRemote, not MPNowPlayingInfoCenter — the old source was always empty.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -108,7 +108,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.29 — chrome hidden via layer opacity; Now Playing tap restored. Verify on iOS 17.3 before APT.</string>
+			<string>Music27 1.1.30 — now-playing via MediaRemote. Verify on iOS 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>
