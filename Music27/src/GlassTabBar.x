@@ -8,22 +8,30 @@
 
 // Floating Liquid Glass dock for Music.
 //
-// 1.1.17–1.1.18: cover-don't-mutate + StatusBar-level solid cover.
-// 1.1.19: adaptive white/black cover on a FULL-SCREEN StatusBar-1 overlay →
-//   iOS 17.3 light Library became an unusable white screen. Root cause was the
-//   SOLID COVER PLATE, not the window: that plate is what painted white.
-// 1.1.20: dropped the plate but also dropped to a BOTTOM-STRIP window at
-//   Normal+10 → on iOS 17.3 the strip never painted at all (100% stock Music
-//   even with the toggle ON after a force-quit), same symptom as 1.1.17.
+// WINDOW LEVEL IS THE WHOLE BALLGAME. Device results on iPhone13,1 / iOS 17.3
+// Dopamine, all with a full-screen passthrough overlay window:
 //
-// 1.1.21 (this build — iOS 17.3 Dopamine):
-// - Back to the PROVEN full-screen window at StatusBar-1. 1.1.19 demonstrated
-//   that this window definitely paints on 17.3 (its white plate was visible).
-// - NO cover plate, ever. Pills only; every other pixel is clear passthrough.
-// - Window can never become key and is never made visible via makeKeyAndVisible,
-//   so Music keeps first responder / status bar ownership.
-// - Never mutate MiniPlayer/Library/tabBar. Prefs are left as the user set them
-//   (no force-OFF migration — with no plate there is nothing to white-screen).
+//   1.1.12-1.1.16  Normal+2      no plate    dock VISIBLE, Library USABLE  ✓
+//   1.1.19         StatusBar-1   plate       white screen
+//   1.1.20         Normal+10     no plate    never painted (Music 100% stock)
+//   1.1.21         StatusBar-1   NO plate    white screen
+//
+// 1.1.19 and 1.1.21 differ only by the cover plate and both white-screened, so
+// the plate was never the cause: a full-screen window at StatusBar-1 blanks
+// Music on 17.3 even when it draws literally nothing. Best theory is that a
+// full-screen window at/above status-bar level makes the system treat Music's
+// own window as occluded, or makes Music's SwiftUI hosts resolve "the" window
+// to ours; either way the fix is the same — stay low.
+//
+// 1.1.21 wrongly assumed StatusBar-1 was safe because 1.1.19's plate had been
+// visible there. Visible and safe are not the same thing.
+//
+// 1.1.22 (this build):
+// - Window level back to Normal+2, the exact 1.1.12 configuration and the only
+//   one that ever produced a visible dock AND a usable Library on this device.
+// - Full-screen passthrough window, no cover plate, pills only.
+// - Window can never become key, so Music keeps first responder / status bar.
+// - Never mutate MiniPlayer/Library/tabBar. Prefs left as the user set them.
 
 static const NSInteger kM27DockTag = 0x4D323744; // 'M27D'
 static const NSInteger kM27CoverTag = 0x4D32434F; // 'M2CO' (legacy teardown only)
@@ -67,7 +75,7 @@ static const void *kM27LayoutGuardKey = &kM27LayoutGuardKey;
 
 @implementation M27DockOverlayWindow
 
-// Full-screen at StatusBar-1: every pixel that is not a dock pill must fall
+// The window is full-screen, so every pixel that is not a dock pill must fall
 // through to Music, or Library becomes untappable even while it stays visible.
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = [super hitTest:point withEvent:event];
@@ -408,11 +416,12 @@ static void M27StripLegacyCoverViews(UIView *host) {
     }
 }
 
-/// Proven-to-paint level on iOS 17.3: 1.1.19's white plate rendered here, so a
-/// window at StatusBar-1 is definitely composited above Music. Normal+10 (1.1.20)
-/// was not.
+/// The one level proven good on-device. See the header note: a full-screen
+/// window at StatusBar-1 blanks Music on 17.3 even when nothing is drawn in it,
+/// and Normal+10 never composited. Normal+2 is what 1.1.12–1.1.16 shipped with a
+/// visible dock and a usable Library. Do not raise this without a device test.
 static UIWindowLevel M27OverlayWindowLevel(void) {
-    return UIWindowLevelStatusBar - 1.0;
+    return UIWindowLevelNormal + 2.0;
 }
 
 static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc) {
@@ -451,7 +460,7 @@ static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc) {
     overlay.rootViewController = root;
 
     objc_setAssociatedObject(tbc, kM27DockWindowKey, overlay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    NSLog(@"[Music27 1.1.21] overlay window created level=%.1f frame=%@ iOS=%ld",
+    NSLog(@"[Music27 1.1.22] overlay window created level=%.1f frame=%@ iOS=%ld",
           overlay.windowLevel, NSStringFromCGRect(overlay.frame), (long)M27SystemMajorVersion());
     return overlay;
 }
@@ -469,21 +478,21 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat screenW = CGRectGetWidth(screen);
         CGFloat screenH = CGRectGetHeight(screen);
         if (screenW < 10 || screenH < 10) {
-            NSLog(@"[Music27 1.1.21] layout skip: empty screen bounds");
+            NSLog(@"[Music27 1.1.22] layout skip: empty screen bounds");
             return;
         }
 
         CGFloat height = dock.preferredHeight;
         if (height < 10 || height > 160.0) {
             height = 52.0 + 8.0 + 58.0;
-            NSLog(@"[Music27 1.1.21] preferredHeight out of range → fallback %.0f", height);
+            NSLog(@"[Music27 1.1.22] preferredHeight out of range → fallback %.0f", height);
         }
 
         CGFloat safeBottom = M27SafeBottomInset(tbc, overlay);
         CGFloat floatGap = M27FloatGap();
 
-        // Full-screen window (the level that provably paints on 17.3), fully
-        // clear except for the dock. No cover plate — that was the white screen.
+        // Full-screen and fully clear except for the dock. Full-screen is fine —
+        // 1.1.12 shipped it. It is the LEVEL that blanks Music when raised.
         CGRect overlayFrame = CGRectMake(0, 0, screenW, screenH);
         if (!CGRectEqualToRect(overlay.frame, overlayFrame)) {
             overlay.frame = overlayFrame;
@@ -495,7 +504,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
 
         UIView *host = overlay.rootViewController.view;
         if (!host) {
-            NSLog(@"[Music27 1.1.21] layout skip: no host view");
+            NSLog(@"[Music27 1.1.22] layout skip: no host view");
             return;
         }
         host.frame = overlay.bounds;
@@ -523,7 +532,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         [dock setNeedsLayout];
         [dock layoutIfNeeded];
 
-        NSLog(@"[Music27 1.1.21] layout iOS=%ld screen=%.0fx%.0f dockY=%.0f dockH=%.0f "
+        NSLog(@"[Music27 1.1.22] layout iOS=%ld screen=%.0fx%.0f dockY=%.0f dockH=%.0f "
               @"safeB=%.0f gap=%.0f level=%.1f hidden=%d host=%@",
               (long)M27SystemMajorVersion(), screenW, screenH, y, height, safeBottom,
               floatGap, overlay.windowLevel, (int)overlay.hidden,
@@ -567,17 +576,17 @@ static void M27RemoveDock(UITabBarController *tbc) {
 
 static void M27InstallDockIfNeeded(UITabBarController *tbc) {
     if (!tbc) {
-        NSLog(@"[Music27 1.1.21] install skip: nil tbc");
+        NSLog(@"[Music27 1.1.22] install skip: nil tbc");
         return;
     }
     if (!tbc.isViewLoaded) {
-        NSLog(@"[Music27 1.1.21] install skip: tbc not loaded");
+        NSLog(@"[Music27 1.1.22] install skip: tbc not loaded");
         return;
     }
     M27Prefs *prefs = M27Prefs.shared;
 
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) {
-        NSLog(@"[Music27 1.1.21] install skip: prefs en=%d dock=%d",
+        NSLog(@"[Music27 1.1.22] install skip: prefs en=%d dock=%d",
               (int)prefs.enabled, (int)prefs.glassTabBarEnabled);
         M27RemoveDock(tbc);
         return;
@@ -598,7 +607,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             objc_setAssociatedObject(tbc, kM27DockViewKey, dock, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [dock reloadTabs];
             [dock setMode:M27DockModeExpanded animated:NO];
-            NSLog(@"[Music27 1.1.21] dock view created");
+            NSLog(@"[Music27 1.1.22] dock view created");
         }
         dock.delegate = controller;
         controller.dock = dock;
@@ -607,10 +616,10 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
         dock.selectedTabIndex = (NSInteger)tbc.selectedIndex;
         [controller syncNowPlaying];
         M27LayoutDock(tbc, dock);
-        NSLog(@"[Music27 1.1.21] install OK dock=%p overlay=%p",
+        NSLog(@"[Music27 1.1.22] install OK dock=%p overlay=%p",
               dock, objc_getAssociatedObject(tbc, kM27DockWindowKey));
     } @catch (NSException *ex) {
-        NSLog(@"[Music27 1.1.21] install exception: %@", ex);
+        NSLog(@"[Music27 1.1.22] install exception: %@", ex);
         M27RemoveDock(tbc);
     }
 }
@@ -705,7 +714,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     %orig;
     __weak UITabBarController *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.21] TBC viewDidAppear");
+        NSLog(@"[Music27 1.1.22] TBC viewDidAppear");
         M27InstallDockIfNeeded(weakSelf);
     });
     // One delayed retry — Music finishes chrome layout after first appear.
@@ -766,7 +775,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     if (!tbc) return;
     __weak UITabBarController *weakTBC = tbc;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.21] UIWindow makeKeyAndVisible → install");
+        NSLog(@"[Music27 1.1.22] UIWindow makeKeyAndVisible → install");
         M27InstallDockIfNeeded(weakTBC);
     });
 }

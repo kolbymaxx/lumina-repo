@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.21
+Version: 1.1.22
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.21 restores the visible float dock on iOS 17 — full-screen passthrough overlay at StatusBar-1, pills only, no cover plate.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.22 fixes the iOS 17 white screen by dropping the overlay window back to Normal+2 — the level 1.1.12 shipped with a visible dock and a usable Library.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks

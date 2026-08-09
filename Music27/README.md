@@ -19,7 +19,7 @@ Settings live under **Settings → Music27**.
 1. Fresh launch starts **expanded** (mini pill + 5-tab pill).
 2. Scrolling down collapses into the merged red · mini · Search pill.
 3. Tap the **red button** to expand back to the 5-tab layout.
-4. Stock mini / tabs stay intact; glass pills float in a **bottom-strip overlay** (no solid cover plate — that caused the iOS 17 white screen).
+4. Stock mini / tabs stay intact; glass pills float in a **passthrough overlay window at `Normal + 2`** with no solid cover plate. The window level is what caused the iOS 17 white screens — see the note under *Verify* before changing it.
 
 ## Blank-screen history
 
@@ -41,7 +41,8 @@ Settings live under **Settings → Music27**.
 | **1.1.18** | **Make cover visible:** solid cover, `UIWindowLevelStatusBar - 1`, `safeBottom+12` float, install retries + Console logs |
 | **1.1.19** | **iOS 17-first:** adaptive light/dark cover on a full-screen StatusBar-level overlay — **white-screened** light Library on iOS 17.3 (SwiftPeek still saw TabBar/MiniPlayer alive) |
 | **1.1.20** | **White-screen recovery:** remove solid cover; overlay is a **bottom strip only** at `Normal+10`; one-time force dock OFF. SwiftPeek dump on iPhone13,1 / 17.3 confirmed `TabBarController` + `MiniPlayerViewController`. Dock then never painted at all on 17.3 — `Normal+10` does not composite above Music |
-| **1.1.21** | **Dock visible again:** back to the full-screen `UIWindowLevelStatusBar - 1` window that 1.1.19 proved *does* paint on 17.3, but with **no cover plate** — pills only, every other pixel clear passthrough. Overlay can never become key window. Migration keeps the user's dock toggle instead of forcing it OFF |
+| **1.1.21** | Full-screen `StatusBar - 1` overlay with **no plate at all** — still white-screened. This is the decisive result: 1.1.19 and 1.1.21 differ only by the plate and both blanked Music, so **the plate was never the cause — the window level was** |
+| **1.1.22** | **White-screen fix:** overlay window level back to `UIWindowLevelNormal + 2`, the exact 1.1.12 configuration and the only one that ever gave a visible dock *and* a usable Library on 17.3. Full-screen passthrough, no plate, pills only |
 
 Prefs are read preferring `/var/jb/.../com.music27.tweak.plist` (Dopamine), then jbroot (RootHide), then rootful.
 
@@ -62,13 +63,15 @@ Architecture: `iphoneos-arm64` (rootless, files under `/var/jb`).
 ## Verify on iOS 17 (Dopamine rootless)
 
 1. Install the CI rootless `.deb` for this version; respring.
-2. **Settings → Music27** footer must say **1.1.21**. Unlike 1.1.15/1.1.20 this build does **not** force Floating Glass Dock OFF — it keeps whatever you last set.
+2. **Settings → Music27** footer must say **1.1.22**. This build does **not** force Floating Glass Dock OFF — it keeps whatever you last set, so if you turned it off to escape the 1.1.21 white screen, turn it back on.
 3. Make sure Enable Music27 and Floating Glass Dock are both **ON**, then **force-quit Music** and relaunch.
 4. Expect: dual glass pills floating above the home indicator, and Library still scrollable/tappable everywhere else (stock mini may peek behind the pills — OK). No white or black plate anywhere.
-5. Optional Console filter: `Music27 1.1.21` → `loaded` / `install OK` / `overlay window created level=` / `layout … screen=`.
-   - `level=` should print roughly `999.0` (`UIWindowLevelStatusBar - 1`). If `install skip: prefs` shows instead, the toggle did not stick.
+5. Optional Console filter: `Music27 1.1.22` → `loaded` / `install OK` / `overlay window created level=` / `layout … screen=`.
+   - `level=` must print `2.0`. Anything near `999` means a stale dylib is still loaded — reinstall. If `install skip: prefs` shows instead, the toggle did not stick.
 
-Known in 1.1.21, to tighten next: the overlay spans the whole screen, so the pills also float over full-screen Now Playing and over presented sheets. They stay passthrough — only the pills themselves take taps — but they are visible there. Hiding the dock while Music presents a modal is the follow-up, along with sizing the pills for the 17 layout and suppressing the stock mini-player peek-through.
+**Do not raise the overlay window level.** A full-screen overlay at `UIWindowLevelStatusBar - 1` blanks Music on 17.3 even when it paints nothing at all (proved by 1.1.21), and `Normal + 10` never composited (1.1.20). `Normal + 2` is the only level verified good on device — treat it as load-bearing.
+
+Known in 1.1.22, to tighten next: the overlay spans the whole screen, so the pills also float over full-screen Now Playing and over presented sheets. They stay passthrough — only the pills themselves take taps — but they are visible there. Hiding the dock while Music presents a modal is the follow-up, along with sizing the pills for the 17 layout and suppressing the stock mini-player peek-through.
 
 ## Build
 
