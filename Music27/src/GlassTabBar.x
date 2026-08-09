@@ -85,7 +85,7 @@ static CGFloat M27FloatGap(void) {
 void M27WriteStatus(NSString *stage, NSDictionary *info) {
     NSMutableDictionary *entry = [info mutableCopy] ?: [NSMutableDictionary dictionary];
     entry[@"stage"] = stage ?: @"?";
-    entry[@"version"] = @"1.1.32";
+    entry[@"version"] = @"1.1.33";
     entry[@"ios"] = UIDevice.currentDevice.systemVersion ?: @"?";
 
     @try {
@@ -469,18 +469,55 @@ static UIControl *M27FirstControlIn(UIView *view, NSInteger depth) {
 /// `view`. Fallback for when MediaRemote returns nothing — the stock mini
 /// player already has the data rendered in it, and SwiftPeek confirmed those
 /// labels are readable (it dumped "Gypsy" / "Lady Gaga" from this very view).
-static void M27ScrapeMiniPlayer(UIView *view, NSInteger depth,
-                                NSMutableArray<NSString *> *texts, UIImage **image) {
+static void M27CollectMiniLabels(UIView *view, NSInteger depth,
+                                 NSMutableArray<UILabel *> *labels, UIImage **image) {
     if (!view || depth > 5) return;
     for (UIView *sub in view.subviews) {
         if ([sub isKindOfClass:UILabel.class]) {
-            NSString *t = ((UILabel *)sub).text;
-            if (t.length && ![texts containsObject:t] && texts.count < 2) [texts addObject:t];
+            UILabel *label = (UILabel *)sub;
+            if (label.text.length) [labels addObject:label];
         } else if ([sub isKindOfClass:UIImageView.class] && !*image) {
             UIImage *img = ((UIImageView *)sub).image;
             if (img && img.size.width > 8.0) *image = img;
         }
-        M27ScrapeMiniPlayer(sub, depth + 1, texts, image);
+        M27CollectMiniLabels(sub, depth + 1, labels, image);
+    }
+}
+
+/// Pick title and artist out of the stock mini player's labels.
+///
+/// Taking the first two in subview order gave "iPhone / KISS" on device —
+/// "iPhone" is the AirPlay route label, which happens to come first in the
+/// hierarchy. SwiftPeek's dump of MiniPlayerViewController showed the same
+/// three-string shape: ["Gypsy", "Lady Gaga", "iPhone"].
+///
+/// Title and artist are the two largest labels; between those two, the title
+/// sits above the artist.
+static void M27ScrapeMiniPlayer(UIView *view, NSInteger depth,
+                                NSMutableArray<NSString *> *texts, UIImage **image) {
+    NSMutableArray<UILabel *> *labels = [NSMutableArray array];
+    M27CollectMiniLabels(view, depth, labels, image);
+    if (labels.count == 0) return;
+
+    [labels sortUsingComparator:^NSComparisonResult(UILabel *a, UILabel *b) {
+        CGFloat fa = a.font.pointSize, fb = b.font.pointSize;
+        if (fa > fb) return NSOrderedAscending;
+        if (fa < fb) return NSOrderedDescending;
+        CGFloat ya = a.frame.origin.y, yb = b.frame.origin.y;
+        if (ya < yb) return NSOrderedAscending;
+        if (ya > yb) return NSOrderedDescending;
+        return NSOrderedSame;
+    }];
+
+    NSArray<UILabel *> *top = labels.count > 2
+        ? [labels subarrayWithRange:NSMakeRange(0, 2)] : labels;
+    NSArray<UILabel *> *ordered = [top sortedArrayUsingComparator:^NSComparisonResult(UILabel *a, UILabel *b) {
+        if (a.frame.origin.y < b.frame.origin.y) return NSOrderedAscending;
+        if (a.frame.origin.y > b.frame.origin.y) return NSOrderedDescending;
+        return NSOrderedSame;
+    }];
+    for (UILabel *label in ordered) {
+        if (label.text.length && ![texts containsObject:label.text]) [texts addObject:label.text];
     }
 }
 
@@ -521,6 +558,8 @@ static void M27ScrapeMiniPlayer(UIView *view, NSInteger depth,
         M27WriteStatus(@"sync_applied", @{
             @"src": @"scrape",
             @"texts": @((long)texts.count),
+            @"title": texts.count > 0 ? texts[0] : @"-",
+            @"artist": texts.count > 1 ? texts[1] : @"-",
             @"artwork": image ? @"yes" : @"no",
         });
     }
@@ -897,7 +936,7 @@ static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc, CGR
         @"frame": NSStringFromCGRect(overlay.frame),
         @"level": @((double)overlay.windowLevel),
     });
-    NSLog(@"[Music27 1.1.32] overlay window created level=%.1f frame=%@ iOS=%ld",
+    NSLog(@"[Music27 1.1.33] overlay window created level=%.1f frame=%@ iOS=%ld",
           overlay.windowLevel, NSStringFromCGRect(overlay.frame), (long)M27SystemMajorVersion());
     return overlay;
 }
@@ -913,7 +952,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat screenW = CGRectGetWidth(screen);
         CGFloat screenH = CGRectGetHeight(screen);
         if (screenW < 10 || screenH < 10) {
-            NSLog(@"[Music27 1.1.32] layout skip: empty screen bounds");
+            NSLog(@"[Music27 1.1.33] layout skip: empty screen bounds");
             M27WriteStatus(@"layout_skip_bounds", @{});
             return;
         }
@@ -921,7 +960,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         CGFloat height = dock.preferredHeight;
         if (height < 10 || height > 160.0) {
             height = 52.0 + 8.0 + 58.0;
-            NSLog(@"[Music27 1.1.32] preferredHeight out of range → fallback %.0f", height);
+            NSLog(@"[Music27 1.1.33] preferredHeight out of range → fallback %.0f", height);
         }
 
         // Safe-area read before the window exists, so the strip can be created at
@@ -951,7 +990,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
 
         UIView *host = overlay.rootViewController.view;
         if (!host) {
-            NSLog(@"[Music27 1.1.32] layout skip: no host view");
+            NSLog(@"[Music27 1.1.33] layout skip: no host view");
             M27WriteStatus(@"layout_skip_no_host", @{});
             return;
         }
@@ -981,7 +1020,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         [dock setNeedsLayout];
         [dock layoutIfNeeded];
 
-        NSLog(@"[Music27 1.1.32] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
+        NSLog(@"[Music27 1.1.33] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
               @"dockH=%.0f safeB=%.0f gap=%.0f level=%.1f hidden=%d",
               (long)M27SystemMajorVersion(), screenW, screenH,
               NSStringFromCGRect(stripFrame), y, height, safeBottom,
@@ -1035,19 +1074,19 @@ static void M27RemoveDock(UITabBarController *tbc) {
 
 static void M27InstallDockIfNeeded(UITabBarController *tbc) {
     if (!tbc) {
-        NSLog(@"[Music27 1.1.32] install skip: nil tbc");
+        NSLog(@"[Music27 1.1.33] install skip: nil tbc");
         M27WriteStatus(@"install_skip_nil_tbc", @{});
         return;
     }
     if (!tbc.isViewLoaded) {
-        NSLog(@"[Music27 1.1.32] install skip: tbc not loaded");
+        NSLog(@"[Music27 1.1.33] install skip: tbc not loaded");
         M27WriteStatus(@"install_skip_tbc_unloaded", @{});
         return;
     }
     M27Prefs *prefs = M27Prefs.shared;
 
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) {
-        NSLog(@"[Music27 1.1.32] install skip: prefs en=%d dock=%d",
+        NSLog(@"[Music27 1.1.33] install skip: prefs en=%d dock=%d",
               (int)prefs.enabled, (int)prefs.glassTabBarEnabled);
         M27WriteStatus(@"install_skip_prefs", @{
             @"enabled": @(prefs.enabled),
@@ -1074,7 +1113,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             objc_setAssociatedObject(tbc, kM27DockViewKey, dock, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [dock reloadTabs];
             [dock setMode:M27DockModeExpanded animated:NO];
-            NSLog(@"[Music27 1.1.32] dock view created");
+            NSLog(@"[Music27 1.1.33] dock view created");
             M27WriteStatus(@"dock_created", @{ @"h": @((double)dock.preferredHeight) });
         }
         // One breadcrumb per step: 1.1.25 narrowed the crash to this span but
@@ -1096,7 +1135,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
         M27WriteStatus(@"pre_layout", @{});
         M27LayoutDock(tbc, dock);
         M27DockOverlayWindow *ov = objc_getAssociatedObject(tbc, kM27DockWindowKey);
-        NSLog(@"[Music27 1.1.32] install OK dock=%p overlay=%p", dock, ov);
+        NSLog(@"[Music27 1.1.33] install OK dock=%p overlay=%p", dock, ov);
         M27WriteStatus(@"install_ok", @{
             @"overlay": ov ? @"yes" : @"no",
             @"overlay_level": @(ov ? (double)ov.windowLevel : -1.0),
@@ -1109,7 +1148,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             @"tabs": @((long)tbc.viewControllers.count),
         });
     } @catch (NSException *ex) {
-        NSLog(@"[Music27 1.1.32] install exception: %@", ex);
+        NSLog(@"[Music27 1.1.33] install exception: %@", ex);
         M27WriteStatus(@"install_exception", @{ @"reason": ex.reason ?: @"?" });
         M27RemoveDock(tbc);
     }
@@ -1205,7 +1244,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     %orig;
     __weak UITabBarController *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.32] TBC viewDidAppear");
+        NSLog(@"[Music27 1.1.33] TBC viewDidAppear");
         M27InstallDockIfNeeded(weakSelf);
     });
     // One delayed retry — Music finishes chrome layout after first appear.
@@ -1266,7 +1305,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     if (!tbc) return;
     __weak UITabBarController *weakTBC = tbc;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.32] UIWindow makeKeyAndVisible → install");
+        NSLog(@"[Music27 1.1.33] UIWindow makeKeyAndVisible → install");
         M27InstallDockIfNeeded(weakTBC);
     });
 }

@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.32: Tapping anywhere on the mini pill now opens Now Playing — only the tiny artwork and the title were tappable before. Music's heavy bottom blur panel is hidden with the rest of the stock chrome. The album Download button is found by accessibility instead of title text.</string>
+			<string>1.1.33: The mini pill showed the AirPlay route name (“iPhone”) as the song title — it now picks the two largest labels and orders them title-above-artist. The album Play/Shuffle row scrolls with the header instead of floating over the track list on playlists.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -108,7 +108,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.32 — mini pill tap, blur removal, download lookup. Verify on iOS 17.3 before APT.</string>
+			<string>Music27 1.1.33 — correct track labels, album row scrolls with content. Verify on iOS 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>

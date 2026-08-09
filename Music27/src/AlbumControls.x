@@ -300,6 +300,7 @@ static NSString *M27DescribeControl(UIView *view) {
 
 static void M27InstallAlbumControls(UIViewController *vc) {
     M27Prefs *prefs = M27Prefs.shared;
+    // May live in vc.view (older builds) or in the stock controls' superview.
     UIView *existing = [vc.view viewWithTag:kM27AlbumControlsTag];
 
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) {
@@ -350,29 +351,46 @@ static void M27InstallAlbumControls(UIViewController *vc) {
         @"download_hidden": downloadWhy ?: @"yes",
     });
 
-    // Place our row roughly where the play control was.
-    CGRect playFrame = [play convertRect:play.bounds toView:vc.view];
-    CGRect shuffleFrame = [shuffle convertRect:shuffle.bounds toView:vc.view];
-    CGFloat minX = 20.0;
-    CGFloat maxX = vc.view.bounds.size.width - 20.0;
-    CGFloat midY = (CGRectGetMidY(playFrame) + CGRectGetMidY(shuffleFrame)) / 2.0;
-    CGFloat top = midY - kM27PlayHeight / 2.0;
-    if (top < 80) {
-        // Fallback under large artwork.
-        top = MAX(playFrame.origin.y, shuffleFrame.origin.y);
-    }
+    // Host the row in the stock controls' OWN superview, not vc.view.
+    //
+    // On a playlist page the row was landing in the middle of the track list:
+    // parented to vc.view it stays fixed while the header scrolls away beneath
+    // it. As a sibling of the stock buttons it scrolls with them and stays put
+    // relative to the artwork, which is what the album page already looked like
+    // by accident because its header happened not to scroll far.
+    UIView *host = play.superview ?: vc.view;
+    UIView *existingInHost = [host viewWithTag:kM27AlbumControlsTag];
+    if (existing && existing != existingInHost) [existing removeFromSuperview];
 
-    M27AlbumControlsView *row = (M27AlbumControlsView *)existing;
+    CGRect playFrame = [play convertRect:play.bounds toView:host];
+    CGRect shuffleFrame = [shuffle convertRect:shuffle.bounds toView:host];
+    CGRect span = CGRectUnion(playFrame, shuffleFrame);
+    // Cover exactly the ground the stock pair occupies.
+    CGFloat minX = CGRectGetMinX(span);
+    CGFloat maxX = CGRectGetMaxX(span);
+    if (maxX - minX < 120.0) {
+        minX = 20.0;
+        maxX = host.bounds.size.width - 20.0;
+    }
+    CGFloat top = CGRectGetMidY(span) - kM27PlayHeight / 2.0;
+
+    M27AlbumControlsView *row = (M27AlbumControlsView *)existingInHost;
     if (![row isKindOfClass:M27AlbumControlsView.class]) {
         row = [[M27AlbumControlsView alloc] initWithFrame:CGRectZero];
         row.tag = kM27AlbumControlsTag;
-        [vc.view addSubview:row];
+        [host addSubview:row];
     }
     row.stockPlay = play;
     row.stockShuffle = shuffle;
     row.stockDownload = download;
     row.frame = CGRectMake(minX, top, maxX - minX, kM27PlayHeight);
-    [vc.view bringSubviewToFront:row];
+    [host bringSubviewToFront:row];
+
+    M27WriteStatus(@"album_row_placed", @{
+        @"host": NSStringFromClass(host.class),
+        @"row": NSStringFromCGRect(row.frame),
+        @"span": NSStringFromCGRect(span),
+    });
 }
 
 %hook UIViewController
