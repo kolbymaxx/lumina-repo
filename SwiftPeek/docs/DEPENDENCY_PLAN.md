@@ -119,9 +119,20 @@ Each entry cost at least one device cycle.
 1. ~~Extract runtime hygiene + overlay hosting as **shared source**.~~ Done —
    `SPKit/`.
 2. ~~**Music27 consumes it**, deleting its own jbroot resolver, prefs reader,
-   status writer and overlay window.~~ Done in Music27 1.1.34. Baseline for
-   comparison is 1.1.33: the extraction is only correct if 1.1.34 behaves
-   identically on device.
+   status writer and overlay window.~~ Done in Music27 1.1.34, and **verified on
+   an iPhone13,1 / iOS 17.3**. The test was that 1.1.34 behave identically to
+   1.1.33, and `status.log` says it does, to the pixel:
+
+   ```
+   1.1.33  overlay_created frame={{0, 646}, {375, 166}} level=2
+   1.1.34  overlay_created frame={{0, 646}, {375, 166}} level=2
+   ```
+
+   `dock_created h=118`, `install_ok`, the layout frames and `album_controls`
+   all match too, with no exception and no skipped install. So SPKit's overlay
+   window, jbroot resolver, prefs reader and trace writer are drop-in
+   replacements for the hand-rolled ones, on real hardware and not just in CI.
+   That is the evidence shape every later adoption should be held to.
 3. SwiftPeek itself — `SPPrefs.m` and `SPDumpWriter.m` still carry their own
    copies of the resolver.
 4. CC27 next — first real test of whether the overlay window generalises, and
