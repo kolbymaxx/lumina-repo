@@ -19,7 +19,7 @@ Settings live under **Settings → Music27**.
 1. Fresh launch starts **expanded** (mini pill + 5-tab pill).
 2. Scrolling down collapses into the merged red · mini · Search pill.
 3. Tap the **red button** to expand back to the 5-tab layout.
-4. Stock mini / tabs stay intact; glass pills float in a **passthrough overlay window at `Normal + 2`** with no solid cover plate. On 17.3 that window is currently never created at all — see *Measured* under **Verify**.
+4. Stock mini / tabs stay intact; glass pills float in a **passthrough bottom-strip window at `Normal + 2`** with no solid cover plate. The window must never be full-screen — see *Measured* under **Verify**.
 
 ## Blank-screen history
 
@@ -43,7 +43,8 @@ Settings live under **Settings → Music27**.
 | **1.1.20** | **White-screen recovery:** remove solid cover; overlay is a **bottom strip only** at `Normal+10`; one-time force dock OFF. SwiftPeek dump on iPhone13,1 / 17.3 confirmed `TabBarController` + `MiniPlayerViewController`. Dock then never painted at all on 17.3 — `Normal+10` does not composite above Music |
 | **1.1.21** | Full-screen `StatusBar - 1` overlay with **no plate at all** — still white-screened. This is the decisive result: 1.1.19 and 1.1.21 differ only by the plate and both blanked Music, so **the plate was never the cause — the window level was** |
 | **1.1.22** | **White-screen fixed, dock still invisible:** level back to `UIWindowLevelNormal + 2`. Library usable on 17.3, Music still stock |
-| **1.1.23** | **Measured, not guessed:** SwiftPeek 0.4.1 shows Music has one window at level 0 and **no `M27DockOverlayWindow` at all** — window level was never the variable. No behaviour change; adds `status.log` / `status.json` so the install path can be diagnosed from Filza |
+| **1.1.23** | Diagnostics only: `status.log` / `status.json` so the install path is readable from Filza. SwiftPeek 0.4.1 confirmed Music's own window is at level 0 |
+| **1.1.24** | **White-screen fix:** overlay window is a **bottom strip**, never full-screen, created at its real size (no 1pt seed). Every full-screen build blanked Music at every level tried; the only non-blanking build was the only strip. Size was the variable all along |
 
 Prefs are read preferring `/var/jb/.../com.music27.tweak.plist` (Dopamine), then jbroot (RootHide), then rootful.
 
@@ -64,67 +65,63 @@ Architecture: `iphoneos-arm64` (rootless, files under `/var/jb`).
 ## Verify on iOS 17 (Dopamine rootless)
 
 1. Install the CI rootless `.deb` for this version; respring.
-2. **Settings → Music27** footer must say **1.1.23**. This build does **not** force Floating Glass Dock OFF — it keeps whatever you last set, so if you turned it off to escape the 1.1.21 white screen, turn it back on.
+2. **Settings → Music27** footer must say **1.1.24**. This build does **not** force Floating Glass Dock OFF — it keeps whatever you last set, so if you turned it off to escape the 1.1.21 white screen, turn it back on.
 3. Make sure Enable Music27 and Floating Glass Dock are both **ON**, then **force-quit Music** and relaunch.
-4. Expect on 17.3 as of 1.1.23: Library usable, no plate, dock still **not** visible. Then read `status.log` — see below.
-5. `status.log` is the primary diagnostic and needs no Mac. The same lines also go to Console under the filter `Music27 1.1.23` if you have one attached.
+4. Expect on 17.3 as of 1.1.24: glass pills in a bottom strip, Library usable, **no white screen**. If Music goes white, turn Floating Glass Dock back OFF and send `status.log` — a `layout` line with `full_screen=1` says the strip cap failed.
+5. `status.log` is the primary diagnostic and needs no Mac. The same lines also go to Console under the filter `Music27 1.1.24` if you have one attached.
 
-### Measured: the overlay window is never created
+### Measured: full-screen is the variable, not window level
 
-A SwiftPeek 0.4.1 window dump from iPhone13,1 / 17.3 with 1.1.22 installed shows
-Music has **exactly one window**:
+On iPhone13,1 / iOS 17.3 with Floating Glass Dock **on**:
+
+| Build | Window shape | Level | Plate | Result |
+|---|---|---|---|---|
+| 1.1.19 | full-screen | `StatusBar - 1` | yes | **white screen** |
+| 1.1.20 | **bottom strip** | `Normal + 10` | no | no white screen; nothing painted |
+| 1.1.21 | full-screen | `StatusBar - 1` | **no** | **white screen** |
+| 1.1.22 | full-screen | `Normal + 2` | no | **white screen** |
+
+Three full-screen builds, at two very different levels, with and without a cover
+plate, all blanked Music. The one build that did **not** blank it is the one whose
+window was a bottom strip. **Size is the variable.** Level is not, and neither is
+the plate — 1.1.19 through 1.1.22 each blamed one of those in turn.
+
+A SwiftPeek 0.4.1 window dump (taken with the dock off) independently rules the
+level theory out: Music's own window sits at **level 0** with nothing above it, so
+`Normal + 2` was never "too low to composite".
 
 ```
 level=0.0  {0,0,375,812}  MusicApplication.Window  root=MusicApplication.TabBarController  KEY OPAQUE
 ```
 
-No `M27DockOverlayWindow` anywhere in the process.
+Do not make the overlay window full-screen again. `M27StripHeight()` hard-caps it
+at 30% of screen height, and every layout records a `full_screen` flag to
+`status.log` so a regression is visible without a device session.
 
-That settles four builds of speculation. Music's own window is at **level 0**, so
-`Normal + 2` was never "too low to composite" — there was nothing to composite.
-**Window level was never the variable.** The dock is either never installed, or
-installed and then torn down.
+### On-device diagnostics (1.1.23+)
 
-For the record, and noting the device each result came from:
-
-| Build | Level | Device | Result |
-|---|---|---|---|
-| 1.1.12–1.1.16 | `Normal + 2` | **iPhone X / 16.7** | dock visible |
-| 1.1.19 | `StatusBar - 1` | iPhone13,1 / 17.3 | white screen |
-| 1.1.20 | `Normal + 10` | iPhone13,1 / 17.3 | stock, no dock |
-| 1.1.21 | `StatusBar - 1` | iPhone13,1 / 17.3 | white screen |
-| 1.1.22 | `Normal + 2` | iPhone13,1 / 17.3 | stock, **no overlay window at all** |
-
-The 1.1.12–1.1.16 row is a different device *and* OS. Treating it as 17.3
-evidence is what sent 1.1.22 back to `Normal + 2` chasing a compositing bug that
-does not exist.
-
-### Diagnosing the install path (1.1.23)
-
-1.1.23 changes no behaviour. It makes the install path report itself to disk:
+The install and layout path reports itself to disk — no Console or Mac needed:
 
 ```
 $jbroot/var/mobile/Library/Music27/status.log    # sequence of events
 $jbroot/var/mobile/Library/Music27/status.json   # latest state
 ```
 
-Readable in Filza — no Console session or Mac required. Force-quit Music, relaunch,
-then read `status.log`. The last stage line tells you which branch was taken:
+Readable in Filza. Force-quit Music, relaunch, then read `status.log`:
 
 | Stage | Meaning |
 |-------|---------|
-| *(no lines at all)* | The dylib was never injected — the tweak is not loading into Music |
-| `loaded` only | Dylib loaded, but the `UITabBarController` hooks never fired |
-| `install_skip_prefs` | Reached the install path and declined: check `enabled` / `glassTabBar` in the same line |
+| *(no lines at all)* | The dylib was never injected into Music |
+| `loaded` only | Loaded, but the `UITabBarController` hooks never fired |
+| `install_skip_prefs` | Declined; same line shows `enabled=` / `glassTabBar=` |
 | `install_skip_nil_tbc` / `install_skip_tbc_unloaded` | Hook fired before Music's tab bar controller was usable |
-| `install_ok` then `remove_dock` | Installed and then torn down — something is calling `M27RemoveDock` after |
-| `install_ok` with `overlay=yes` | Window really was created; compare `overlay_level` / `dock_frame` against the SwiftPeek dump |
+| `install_ok` then `remove_dock` | Installed, then torn down by something later |
+| `layout` | Records `strip=`, `dock_frame=`, `safe_bottom=`, `level=`, and `full_screen=` |
 
-`install_ok` also records `overlay_level`, `overlay_hidden`, `overlay_frame`,
-`dock_frame`, `dock_hidden`, `dock_alpha`, `dock_superview` and the tab count, so
-a created-but-invisible dock is distinguishable from a missing one in the same line.
+`full_screen=1` on a `layout` line means the strip cap failed and a white screen
+is expected — that is the regression to watch for.
 
-Known in 1.1.23, to tighten next: the overlay spans the whole screen, so the pills also float over full-screen Now Playing and over presented sheets. They stay passthrough — only the pills themselves take taps — but they are visible there. Hiding the dock while Music presents a modal is the follow-up, along with sizing the pills for the 17 layout and suppressing the stock mini-player peek-through.
+Known in 1.1.24, to tighten next: the strip sits over the bottom of full-screen Now Playing and any presented sheet. It stays passthrough — only the pills take taps — but it is visible there. Hiding the dock while Music presents a modal is the follow-up, along with sizing the pills for the 17 layout and suppressing the stock mini-player peek-through.
 
 ## Build
 

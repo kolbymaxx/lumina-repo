@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.23: Diagnostics build. SwiftPeek proved the dock's overlay window is never created on iOS 17.3, so this writes what the install path did to /var/jb/var/mobile/Library/Music27/status.log — readable in Filza. No visual change from 1.1.22.</string>
+			<string>1.1.24: White-screen fix. The dock's overlay window is a bottom strip again, never full-screen — every full-screen build blanked Music at every window level tried. Turn Floating Glass Dock ON and force-quit Music. If Music goes white again, turn it back OFF and send /var/jb/var/mobile/Library/Music27/status.log.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -94,7 +94,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.23 — install diagnostics to status.log. Verify on iOS 17.3 before APT.</string>
+			<string>Music27 1.1.24 — bottom-strip overlay (never full-screen) + status.log. Verify on iOS 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>

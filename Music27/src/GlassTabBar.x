@@ -8,37 +8,34 @@
 
 // Floating Liquid Glass dock for Music.
 //
-// THE OVERLAY WINDOW IS NOT BEING CREATED. Measured, not guessed: a SwiftPeek
-// 0.4.1 window dump from iPhone13,1 / 17.3 with 1.1.22 installed shows Music
-// has exactly ONE window —
+// NEVER MAKE THE OVERLAY WINDOW FULL-SCREEN.
 //
-//   level=0.0  {0,0,375,812}  MusicApplication.Window  root=…TabBarController
+// Device results on iPhone13,1 / iOS 17.3 Dopamine, dock ON:
 //
-// and no M27DockOverlayWindow anywhere in the process.
+//   1.1.19   full-screen   StatusBar-1   plate      WHITE SCREEN
+//   1.1.20   bottom strip  Normal+10     no plate   no white screen; nothing painted
+//   1.1.21   full-screen   StatusBar-1   NO plate   WHITE SCREEN
+//   1.1.22   full-screen   Normal+2      no plate   WHITE SCREEN
 //
-// That kills every theory 1.1.19–1.1.22 were built on. Music's own window is at
-// level 0, so Normal+2 was never "too low to composite"; there was simply
-// nothing to composite. Levels were never the variable — the dock is not
-// getting installed, or is installed and then torn down.
+// Three full-screen builds at two very different levels, with and without a
+// cover plate, all blanked Music. The only build that did NOT blank it is the
+// only one whose window was a bottom strip. Size is the variable; level is not,
+// and neither is the plate. 1.1.19-1.1.22 each blamed one of those instead.
 //
-// Device history, for the record (17.3 unless noted):
+// A SwiftPeek 0.4.1 dump (dock OFF) also confirms Music's own window sits at
+// level 0 with nothing above it, so "Normal+2 is too low to composite" was never
+// true either.
 //
-//   1.1.12-1.1.16  Normal+2      no plate    dock visible — but on iPhone X/16.7
-//   1.1.19         StatusBar-1   plate       white screen
-//   1.1.20         Normal+10     no plate    stock; no dock
-//   1.1.21         StatusBar-1   NO plate    white screen
-//   1.1.22         Normal+2      no plate    stock; NO OVERLAY WINDOW AT ALL
-//
-// Note the 1.1.12–1.1.16 row is a different device and OS. Treating it as 17.3
-// evidence is what sent 1.1.22 back to Normal+2 chasing a compositing bug that
-// does not exist.
-//
-// 1.1.23 (this build) adds no behaviour change. It makes the install path
-// report itself to disk via M27WriteStatus so the next question — never
-// installed, or installed and removed — is answered from Filza instead of a
-// fifth build. Everything else is unchanged from 1.1.22: full-screen
-// passthrough window at Normal+2, no cover plate, pills only, never mutate
-// MiniPlayer/Library/tabBar, prefs left as the user set them.
+// 1.1.24 (this build):
+// - The overlay window is a BOTTOM STRIP: dock height + float gap + safe area,
+//   hard-capped at 30% of the screen so it can never grow toward full-screen.
+// - Created at its real strip size. 1.1.20 seeded a 1pt-tall window and resized
+//   it afterwards and never painted; that seed is gone.
+// - Dock coordinates are strip-relative, not screen-relative.
+// - Level stays Normal+2. Music's window is at 0, so this is above it.
+// - No cover plate. Never mutate MiniPlayer/Library/tabBar.
+// - M27WriteStatus records the strip frame and a full_screen flag on every
+//   layout, so a regression back to full-screen is visible from Filza.
 
 static const NSInteger kM27DockTag = 0x4D323744; // 'M27D'
 static const NSInteger kM27CoverTag = 0x4D32434F; // 'M2CO' (legacy teardown only)
@@ -59,13 +56,12 @@ static CGFloat M27FloatGap(void) {
     return M27SystemMajorVersion() >= 17 ? kM27FloatGap17 : kM27FloatGap16;
 }
 
-#pragma mark - On-device status (1.1.23)
+#pragma mark - On-device status (1.1.23+)
 
-/// SwiftPeek 0.4.1 proved the overlay window does not exist at all on 17.3 —
-/// Music has exactly one window, its own, at level 0. That rules out every
-/// compositing theory and moves the question to the install path, which until
-/// now only reported itself through NSLog. Console needs a Mac attached; this
-/// writes the same facts to disk so the phone can answer on its own.
+/// The install path used to report itself only through NSLog, which needs a Mac
+/// with Console attached. This writes the same facts to disk so the phone can
+/// answer on its own — which is how the strip-vs-full-screen result above was
+/// finally pinned down instead of guessed at.
 void M27WriteStatus(NSString *stage, NSDictionary *info) {
     static dispatch_queue_t queue;
     static dispatch_once_t once;
@@ -75,7 +71,7 @@ void M27WriteStatus(NSString *stage, NSDictionary *info) {
 
     NSMutableDictionary *entry = [info mutableCopy] ?: [NSMutableDictionary dictionary];
     entry[@"stage"] = stage ?: @"?";
-    entry[@"version"] = @"1.1.23";
+    entry[@"version"] = @"1.1.24";
     entry[@"ios"] = UIDevice.currentDevice.systemVersion ?: @"?";
 
     dispatch_async(queue, ^{
@@ -148,8 +144,8 @@ static const void *kM27LayoutGuardKey = &kM27LayoutGuardKey;
 
 @implementation M27DockOverlayWindow
 
-// The window is full-screen, so every pixel that is not a dock pill must fall
-// through to Music, or Library becomes untappable even while it stays visible.
+// The strip still spans the full width, so every pixel that is not a dock pill
+// must fall through to Music or the area above the home indicator eats taps.
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = [super hitTest:point withEvent:event];
     if (hit == self || hit == self.rootViewController.view) return nil;
@@ -157,8 +153,8 @@ static const void *kM27LayoutGuardKey = &kM27LayoutGuardKey;
 }
 
 // Music must keep key-window status — the keyboard, first responder and status
-// bar style all follow the key window, and a full-screen overlay stealing it is
-// exactly how an app ends up looking blank.
+// bar style all follow the key window, and an overlay stealing it is one more
+// way an app ends up looking blank.
 - (BOOL)canBecomeKeyWindow {
     return NO;
 }
@@ -489,17 +485,32 @@ static void M27StripLegacyCoverViews(UIView *host) {
     }
 }
 
-/// The one level proven good on-device. See the header note: a full-screen
-/// window at StatusBar-1 blanks Music on 17.3 even when nothing is drawn in it,
-/// and Normal+10 never composited. Normal+2 is what 1.1.12–1.1.16 shipped with a
-/// visible dock and a usable Library. Do not raise this without a device test.
 static UIWindowLevel M27OverlayWindowLevel(void) {
     return UIWindowLevelNormal + 2.0;
 }
 
-static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc) {
+/// Height of the bottom strip the overlay window occupies.
+///
+/// THE OVERLAY MUST NEVER BE FULL-SCREEN. Every full-screen build white-screened
+/// Music on 17.3 regardless of level — StatusBar-1 (1.1.19, 1.1.21) and Normal+2
+/// (1.1.22) alike, with and without a cover plate. The single build that did not
+/// blank Music was 1.1.20, the only one whose window was a bottom strip. Size,
+/// not level, is the variable.
+static CGFloat M27StripHeight(CGFloat dockHeight, CGFloat safeBottom, CGFloat screenH) {
+    CGFloat h = dockHeight + M27FloatGap() + safeBottom;
+    // Never let a rounding or safe-area surprise grow this toward full-screen.
+    CGFloat cap = MAX(120.0, screenH * 0.30);
+    return MIN(h, cap);
+}
+
+static CGRect M27StripFrame(CGRect screen, CGFloat dockHeight, CGFloat safeBottom) {
+    CGFloat screenH = CGRectGetHeight(screen);
+    CGFloat h = M27StripHeight(dockHeight, safeBottom, screenH);
+    return CGRectMake(0, screenH - h, CGRectGetWidth(screen), h);
+}
+
+static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc, CGRect stripFrame) {
     M27DockOverlayWindow *overlay = objc_getAssociatedObject(tbc, kM27DockWindowKey);
-    CGRect screen = M27ScreenBounds(tbc);
 
     if (overlay) {
         overlay.windowLevel = M27OverlayWindowLevel();
@@ -508,9 +519,12 @@ static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc) {
     }
 
     UIWindowScene *scene = M27SceneForTabBarController(tbc);
-    // Full-screen from the start — the dock pill is the only thing that paints.
-    CGRect seed = screen;
-    if (CGRectIsEmpty(seed)) seed = CGRectMake(0, 0, 320, 568);
+    // Created at its real strip size. 1.1.20 seeded a 1pt-tall window and resized
+    // it afterwards, and that build never painted — so do not repeat the seed.
+    CGRect seed = stripFrame;
+    if (CGRectIsEmpty(seed) || seed.size.height < 10.0) {
+        seed = CGRectMake(0, 0, 320, 166);
+    }
 
     if (scene) {
         overlay = [[M27DockOverlayWindow alloc] initWithWindowScene:scene];
@@ -533,7 +547,7 @@ static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc) {
     overlay.rootViewController = root;
 
     objc_setAssociatedObject(tbc, kM27DockWindowKey, overlay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    NSLog(@"[Music27 1.1.23] overlay window created level=%.1f frame=%@ iOS=%ld",
+    NSLog(@"[Music27 1.1.24] overlay window created level=%.1f frame=%@ iOS=%ld",
           overlay.windowLevel, NSStringFromCGRect(overlay.frame), (long)M27SystemMajorVersion());
     return overlay;
 }
@@ -544,31 +558,40 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
     objc_setAssociatedObject(tbc, kM27LayoutGuardKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
     @try {
-        M27DockOverlayWindow *overlay = M27EnsureOverlayWindow(tbc);
-        if (!overlay) return;
-
         CGRect screen = M27ScreenBounds(tbc);
         CGFloat screenW = CGRectGetWidth(screen);
         CGFloat screenH = CGRectGetHeight(screen);
         if (screenW < 10 || screenH < 10) {
-            NSLog(@"[Music27 1.1.23] layout skip: empty screen bounds");
+            NSLog(@"[Music27 1.1.24] layout skip: empty screen bounds");
+            M27WriteStatus(@"layout_skip_bounds", @{});
             return;
         }
 
         CGFloat height = dock.preferredHeight;
         if (height < 10 || height > 160.0) {
             height = 52.0 + 8.0 + 58.0;
-            NSLog(@"[Music27 1.1.23] preferredHeight out of range → fallback %.0f", height);
+            NSLog(@"[Music27 1.1.24] preferredHeight out of range → fallback %.0f", height);
         }
 
-        CGFloat safeBottom = M27SafeBottomInset(tbc, overlay);
+        // Safe-area read before the window exists, so the strip can be created at
+        // its real size rather than seeded small and resized (the 1.1.20 mistake).
+        CGFloat safeBottom = M27SafeBottomInset(tbc, nil);
         CGFloat floatGap = M27FloatGap();
+        CGRect stripFrame = M27StripFrame(screen, height, safeBottom);
 
-        // Full-screen and fully clear except for the dock. Full-screen is fine —
-        // 1.1.12 shipped it. It is the LEVEL that blanks Music when raised.
-        CGRect overlayFrame = CGRectMake(0, 0, screenW, screenH);
-        if (!CGRectEqualToRect(overlay.frame, overlayFrame)) {
-            overlay.frame = overlayFrame;
+        M27DockOverlayWindow *overlay = M27EnsureOverlayWindow(tbc, stripFrame);
+        if (!overlay) return;
+
+        // Re-read now that the window exists; its own safeAreaInsets are the
+        // authoritative ones. Recompute the strip if that changed anything.
+        CGFloat safeBottom2 = M27SafeBottomInset(tbc, overlay);
+        if (fabs(safeBottom2 - safeBottom) > 0.5) {
+            safeBottom = safeBottom2;
+            stripFrame = M27StripFrame(screen, height, safeBottom);
+        }
+
+        if (!CGRectEqualToRect(overlay.frame, stripFrame)) {
+            overlay.frame = stripFrame;
         }
         overlay.windowLevel = M27OverlayWindowLevel();
         overlay.hidden = NO;
@@ -577,7 +600,8 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
 
         UIView *host = overlay.rootViewController.view;
         if (!host) {
-            NSLog(@"[Music27 1.1.23] layout skip: no host view");
+            NSLog(@"[Music27 1.1.24] layout skip: no host view");
+            M27WriteStatus(@"layout_skip_no_host", @{});
             return;
         }
         host.frame = overlay.bounds;
@@ -591,9 +615,10 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         }
         [host bringSubviewToFront:dock];
 
-        // Float above the home indicator, measured from the bottom of the screen.
-        CGFloat y = screenH - safeBottom - floatGap - height;
-        y = MAX(0, y);
+        // Dock coordinates are strip-relative now, not screen-relative. Sit it at
+        // the top of the strip; the home-indicator gap below stays passthrough.
+        CGFloat stripH = CGRectGetHeight(stripFrame);
+        CGFloat y = MAX(0.0, stripH - safeBottom - height);
         CGRect frame = CGRectMake(0, y, screenW, height);
         if (!CGRectEqualToRect(dock.frame, frame)) {
             dock.frame = frame;
@@ -605,11 +630,19 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
         [dock setNeedsLayout];
         [dock layoutIfNeeded];
 
-        NSLog(@"[Music27 1.1.23] layout iOS=%ld screen=%.0fx%.0f dockY=%.0f dockH=%.0f "
-              @"safeB=%.0f gap=%.0f level=%.1f hidden=%d host=%@",
-              (long)M27SystemMajorVersion(), screenW, screenH, y, height, safeBottom,
-              floatGap, overlay.windowLevel, (int)overlay.hidden,
-              NSStringFromCGRect(host.frame));
+        NSLog(@"[Music27 1.1.24] layout iOS=%ld screen=%.0fx%.0f strip=%@ dockY=%.0f "
+              @"dockH=%.0f safeB=%.0f gap=%.0f level=%.1f hidden=%d",
+              (long)M27SystemMajorVersion(), screenW, screenH,
+              NSStringFromCGRect(stripFrame), y, height, safeBottom,
+              floatGap, overlay.windowLevel, (int)overlay.hidden);
+        M27WriteStatus(@"layout", @{
+            @"strip": NSStringFromCGRect(stripFrame),
+            @"screen": NSStringFromCGSize(CGSizeMake(screenW, screenH)),
+            @"dock_frame": NSStringFromCGRect(dock.frame),
+            @"safe_bottom": @((double)safeBottom),
+            @"level": @((double)overlay.windowLevel),
+            @"full_screen": @(CGRectGetHeight(stripFrame) >= screenH - 1.0),
+        });
 
         M27RestoreStockChromeIfNeeded(tbc);
     } @finally {
@@ -652,19 +685,19 @@ static void M27RemoveDock(UITabBarController *tbc) {
 
 static void M27InstallDockIfNeeded(UITabBarController *tbc) {
     if (!tbc) {
-        NSLog(@"[Music27 1.1.23] install skip: nil tbc");
+        NSLog(@"[Music27 1.1.24] install skip: nil tbc");
         M27WriteStatus(@"install_skip_nil_tbc", @{});
         return;
     }
     if (!tbc.isViewLoaded) {
-        NSLog(@"[Music27 1.1.23] install skip: tbc not loaded");
+        NSLog(@"[Music27 1.1.24] install skip: tbc not loaded");
         M27WriteStatus(@"install_skip_tbc_unloaded", @{});
         return;
     }
     M27Prefs *prefs = M27Prefs.shared;
 
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) {
-        NSLog(@"[Music27 1.1.23] install skip: prefs en=%d dock=%d",
+        NSLog(@"[Music27 1.1.24] install skip: prefs en=%d dock=%d",
               (int)prefs.enabled, (int)prefs.glassTabBarEnabled);
         M27WriteStatus(@"install_skip_prefs", @{
             @"enabled": @(prefs.enabled),
@@ -689,7 +722,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             objc_setAssociatedObject(tbc, kM27DockViewKey, dock, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [dock reloadTabs];
             [dock setMode:M27DockModeExpanded animated:NO];
-            NSLog(@"[Music27 1.1.23] dock view created");
+            NSLog(@"[Music27 1.1.24] dock view created");
         }
         dock.delegate = controller;
         controller.dock = dock;
@@ -699,7 +732,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
         [controller syncNowPlaying];
         M27LayoutDock(tbc, dock);
         M27DockOverlayWindow *ov = objc_getAssociatedObject(tbc, kM27DockWindowKey);
-        NSLog(@"[Music27 1.1.23] install OK dock=%p overlay=%p", dock, ov);
+        NSLog(@"[Music27 1.1.24] install OK dock=%p overlay=%p", dock, ov);
         M27WriteStatus(@"install_ok", @{
             @"overlay": ov ? @"yes" : @"no",
             @"overlay_level": @(ov ? (double)ov.windowLevel : -1.0),
@@ -712,7 +745,7 @@ static void M27InstallDockIfNeeded(UITabBarController *tbc) {
             @"tabs": @((long)tbc.viewControllers.count),
         });
     } @catch (NSException *ex) {
-        NSLog(@"[Music27 1.1.23] install exception: %@", ex);
+        NSLog(@"[Music27 1.1.24] install exception: %@", ex);
         M27WriteStatus(@"install_exception", @{ @"reason": ex.reason ?: @"?" });
         M27RemoveDock(tbc);
     }
@@ -808,7 +841,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     %orig;
     __weak UITabBarController *weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.23] TBC viewDidAppear");
+        NSLog(@"[Music27 1.1.24] TBC viewDidAppear");
         M27InstallDockIfNeeded(weakSelf);
     });
     // One delayed retry — Music finishes chrome layout after first appear.
@@ -869,7 +902,7 @@ void M27ApplyChromeForCurrentPrefs(void) {
     if (!tbc) return;
     __weak UITabBarController *weakTBC = tbc;
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Music27 1.1.23] UIWindow makeKeyAndVisible → install");
+        NSLog(@"[Music27 1.1.24] UIWindow makeKeyAndVisible → install");
         M27InstallDockIfNeeded(weakTBC);
     });
 }
