@@ -64,6 +64,24 @@ static UIView *M27FindControlWithTitle(UIView *root, NSArray<NSString *> *titles
     return nil;
 }
 
+/// Search for a control that reads like "download" via accessibility, which
+/// survives SwiftUI rendering better than title text does.
+static UIView *M27FindDownloadByAccessibility(UIView *root, NSInteger depth) {
+    if (!root || depth > 6) return nil;
+    for (UIView *sub in root.subviews) {
+        if ([sub isKindOfClass:UIControl.class]) {
+            NSString *label = (sub.accessibilityLabel ?: @"").lowercaseString;
+            NSString *ident = (sub.accessibilityIdentifier ?: @"").lowercaseString;
+            for (NSString *needle in @[ @"download", @"add to library", @"cloud", @"arrow.down" ]) {
+                if ([label containsString:needle] || [ident containsString:needle]) return sub;
+            }
+        }
+        UIView *hit = M27FindDownloadByAccessibility(sub, depth + 1);
+        if (hit) return hit;
+    }
+    return nil;
+}
+
 static UIView *M27FindDownloadControl(UIViewController *vc) {
     // Prefer nav-bar download; fall back to hierarchy search.
     for (UIBarButtonItem *item in vc.navigationItem.rightBarButtonItems ?: @[]) {
@@ -79,7 +97,14 @@ static UIView *M27FindDownloadControl(UIViewController *vc) {
             }
         }
     }
-    return M27FindControlWithTitle(vc.view, @[ @"download" ], NO, 0);
+    UIView *byTitle = M27FindControlWithTitle(vc.view, @[ @"download" ], NO, 0);
+    if (byTitle) return byTitle;
+
+    // 1.1.31 logged `download=nil`: neither the nav-bar scan nor the title
+    // search finds it on 17.3. Play and Shuffle both resolve to
+    // MusicCoreUI.SymbolButton, so search the nav bar for a UIControl whose
+    // accessibility label reads like a download action.
+    return M27FindDownloadByAccessibility(vc.navigationController.navigationBar ?: vc.view, 0);
 }
 
 /// Compact description for status.log — class plus frame. Defined below.
@@ -313,6 +338,11 @@ static void M27InstallAlbumControls(UIViewController *vc) {
         @"play": M27DescribeControl(play),
         @"play_is_control": [play isKindOfClass:UIControl.class] ? @"yes" : @"no",
         @"play_hidden": playWhy ?: @"yes",
+        // Readback: the hide reports success but the stock glyphs still show,
+        // so record what actually stuck and what the parent is.
+        @"play_opacity": @((double)play.layer.opacity),
+        @"play_alpha": @((double)play.alpha),
+        @"play_parent": M27DescribeControl(play.superview),
         @"shuffle": M27DescribeControl(shuffle),
         @"shuffle_is_control": [shuffle isKindOfClass:UIControl.class] ? @"yes" : @"no",
         @"shuffle_hidden": shuffleWhy ?: @"yes",

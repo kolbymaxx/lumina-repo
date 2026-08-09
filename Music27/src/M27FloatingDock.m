@@ -155,6 +155,14 @@ static const CGFloat kM27CircleButton = 44.0;
     UIView *miniHost = [[UIView alloc] initWithFrame:CGRectZero];
     miniHost.tag = 0x4D324D48; // 'M2MH'
     miniHost.backgroundColor = UIColor.clearColor;
+    // The whole pill opens Now Playing. Previously only the 36pt artwork and
+    // the title label carried the gesture, so most of the pill was dead — and
+    // status.log proved it: not a single nowplaying_* line was ever written,
+    // meaning the delegate was never reached. The play/pause and next buttons
+    // are UIControl subviews, so they still win the hit test over this.
+    miniHost.userInteractionEnabled = YES;
+    [miniHost addGestureRecognizer:
+        [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(nowPlayingTapped)]];
     [M27GlassChrome addSoftShadowToHost:miniHost];
     [miniHost addSubview:_miniGlass];
     [_expandedHost addSubview:miniHost];
@@ -185,6 +193,7 @@ static const CGFloat kM27CircleButton = 44.0;
     _expandedArtist.font = [UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
     _expandedArtist.textColor = UIColor.secondaryLabelColor;
     _expandedArtist.lineBreakMode = NSLineBreakByTruncatingTail;
+    _expandedArtist.userInteractionEnabled = NO; // falls through to miniHost
     [_miniGlass.contentView addSubview:_expandedArtist];
 
     _expandedPlayPause = [self circleIconButtonWithSystemName:@"pause.fill"
