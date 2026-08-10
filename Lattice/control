@@ -1,0 +1,9 @@
+Package: com.kolby.lattice
+Name: Lattice
+Depends: mobilesubstrate, preferenceloader, firmware (>= 15.0)
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Description: Home Screen grid freedom for iOS 16.7 / 17.x — any number of rows and columns, independent dock width, optional hidden labels. Overrides layout numbers only; never mutates the icon model. Default off. Not published.
+Maintainer: ma6x9x
+Author: ma6x9x
+Section: Tweaks
