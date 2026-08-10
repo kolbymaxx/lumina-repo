@@ -534,7 +534,6 @@ static NSString *M27PresentationSelectors(NSObject *obj) {
         @"mini_alpha": @((double)mini.alpha),
         @"mini_opacity": @((double)mini.layer.opacity),
         @"mini_hidden": mini.hidden ? @"yes" : @"no",
-        @"fire_detail": why.length ? why : @"-",
     });
 
     mini.userInteractionEnabled = wasInteractive;
