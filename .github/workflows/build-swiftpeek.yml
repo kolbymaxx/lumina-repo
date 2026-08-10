@@ -67,13 +67,33 @@ jobs:
           TMP=$(mktemp -d)
           dpkg-deb -x "$DEB" "$TMP"
           FILTER="$(find "$TMP" -name 'SwiftPeek.plist' -path '*DynamicLibraries*' | head -1)"
+          PREFS_SRC="$GITHUB_WORKSPACE/SwiftPeek/layout/Library/PreferenceLoader/Preferences/SwiftPeek.plist"
           test -n "$FILTER"
           plutil -p "$FILTER"
           grep -q 'com.apple.Music' <(plutil -p "$FILTER")
-          # Music-only — SpringBoard + Swift-linked dylib caused Safe Mode on 0.2.0
+          # 0.4.0 allows SpringBoard in the filter for the opt-in recon mode.
+          # 0.2.0 put SpringBoard into Safe Mode with a Swift-linked dylib, so
+          # what has to be guarded now is not the filter but the two things
+          # that make the SpringBoard path safe: the dylib stays ObjC-only, and
+          # injection is gated behind a pref that defaults off.
           if grep -qi 'springboard' <(plutil -p "$FILTER"); then
-            echo "ERROR: filter must not inject SpringBoard" >&2
-            exit 1
+            echo "SpringBoard present in filter — verifying the opt-in gate"
+            grep -q 'targetSpringBoard' "$GITHUB_WORKSPACE/SwiftPeek/src/SPAttach.m" || {
+              echo "ERROR: SpringBoard in filter with no targetSpringBoard gate" >&2
+              exit 1
+            }
+            grep -q 'targetSpringBoard' <(plutil -p "$PREFS_SRC") || {
+              echo "ERROR: targetSpringBoard is not exposed in the prefs bundle" >&2
+              exit 1
+            }
+            # An ObjC-only dylib is load-bearing here: Swift runtime + SpringBoard
+            # is the exact 0.2.0 failure. No Swift sources may enter the build.
+            if ls "$GITHUB_WORKSPACE"/SwiftPeek/src/*.swift >/dev/null 2>&1; then
+              if grep -q '\.swift' "$GITHUB_WORKSPACE/SwiftPeek/Makefile"; then
+                echo "ERROR: Swift source in a SpringBoard-injecting SwiftPeek" >&2
+                exit 1
+              fi
+            fi
           fi
           PREFS="$(find "$TMP" -path '*/PreferenceLoader/Preferences/SwiftPeek.plist' | head -1)"
           test -n "$PREFS"

@@ -61,7 +61,20 @@ PYTHONPATH=tools python3 -m swiftpeek find ~/Downloads/annotated.json artwork
 Legacy wrappers `annotate-dump.py` / `peek-query.py` still work.
 See [`SwiftPeek/docs/READ_API.md`](../SwiftPeek/docs/READ_API.md).
 
+### Icon inventory → Glyph tint plan
+
+SwiftPeek 0.4.0 SpringBoard dumps carry an `icons` array with a pixel signature
+per app. The analyser classifies each one and emits Glyph `perApp` settings:
+
 ```bash
-cd tools && python3 -m unittest swiftpeek.test_api -v
+PYTHONPATH=tools python3 -m swiftpeek icons SpringBoard_<ts>.json
+PYTHONPATH=tools python3 -m swiftpeek tint-plan SpringBoard_<ts>.json --mode 4 -o plan.json
+```
+
+Thresholds are calibrated against a real 201-entry inventory, not synthetic
+icons — see the note at the top of `tools/swiftpeek/icons.py`.
+
+```bash
+cd tools && python3 -m unittest swiftpeek.test_api swiftpeek.test_scaffold swiftpeek.test_icons -v
 ```
 

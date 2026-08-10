@@ -17,7 +17,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>0.3.6: Enable + Scan Windows + Dump Fields (proven). Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit Music after changes.</string>
+			<string>0.4.0: Enable + Scan Windows + Dump Fields (proven, Music). Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit Music after changes.</string>
 			<key>label</key>
 			<string>SwiftPeek</string>
 		</dict>
@@ -104,6 +104,56 @@
 			<string>logAttach</string>
 			<key>label</key>
 			<string>Log Attach (os_log / NSLog)</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>SwiftPeek went Music-only at 0.2.1 after putting SpringBoard into Safe Mode. 0.4.0 allows SpringBoard again for recon only: ObjC-only, no hooks, no swizzles, no Swift metadata walks. Icon Inventory reads each app's artwork through UIKit (never SBIconModel) and records pixel statistics. Scan Windows walks the already-loaded view tree to tell UIKit surfaces from SwiftUI-hosted ones — that is what fills in Glyph's PENDING DUMP rows. Both need Target SpringBoard on, and all three default off. Respring after changing.</string>
+			<key>label</key>
+			<string>SpringBoard Recon (0.4.0)</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>targetSpringBoard</string>
+			<key>label</key>
+			<string>Target SpringBoard</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>iconInventory</string>
+			<key>label</key>
+			<string>Icon Inventory</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>sbScanWindows</string>
+			<key>label</key>
+			<string>Scan Windows (SpringBoard)</string>
 		</dict>
 		<dict>
 			<key>cell</key>
