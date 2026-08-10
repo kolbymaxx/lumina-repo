@@ -19,9 +19,12 @@ SwiftPeek/.theos/
 SwiftPeek/packages/
 OmniAI/.theos/
 OmniAI/packages/
+Glyph/.theos/
+Glyph/packages/
 
-# Host-side tool binary (rebuild with: cc -O2 -o tools/swiftmd tools/swiftmd.c)
+# Host-side tool binaries (rebuild with the commands in tools/README.md)
 tools/swiftmd
+tools/glyph-preview
 
 
 __pycache__/

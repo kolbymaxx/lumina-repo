@@ -27,6 +27,21 @@ Cache-extracted dylibs often leave mangled *type* strings as `<unresolved>`
 when the relative pointer lands outside the file. Field *names* still resolve;
 a high unresolved rate means lossy extraction, not missing metadata.
 
+## `glyph-preview`
+
+Glyph's composite kernels (`Glyph/src/GLPixelKit.c`) are plain C with no
+Foundation and no UIKit, so the colour maths can be exercised here instead of
+being seen for the first time on a device that can Safe Mode.
+
+```bash
+cc -O2 -o tools/glyph-preview tools/glyph-preview.c Glyph/src/GLPixelKit.c -lm
+./tools/glyph-preview /tmp/glyph-sheet.png
+```
+
+Renders a contact sheet of every Glyph mode across three icon shapes,
+composited over a stand-in wallpaper, and **exits non-zero** if a kernel fails
+or produces an empty bitmap.
+
 ## Drift sweep
 
 ```bash
