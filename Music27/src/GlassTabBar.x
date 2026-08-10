@@ -376,7 +376,8 @@ static NSArray<UIGestureRecognizer *> *M27TapGesturesNear(UIView *view, NSIntege
 /// This may still no-op: a handler that checks `gr.state == .ended` will bail,
 /// because the recogniser is sitting in .possible and state is read-only. That
 /// is exactly why the outcome is logged rather than assumed.
-static NSInteger M27FireGestureTargets(UIGestureRecognizer *gr, NSMutableString *why) {
+static NSInteger M27FireGestureTargets(UIGestureRecognizer *gr, NSMutableString *why,
+                                       id __strong *outTarget) {
     if (!gr) return 0;
     NSInteger fired = 0;
     @try {
@@ -406,6 +407,7 @@ static NSInteger M27FireGestureTargets(UIGestureRecognizer *gr, NSMutableString 
                 continue;
             }
             [why appendFormat:@"%s.%@ ", object_getClassName(target), NSStringFromSelector(action)];
+            if (outTarget && !*outTarget) *outTarget = target;
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
@@ -434,8 +436,13 @@ static NSString *M27PresentationSelectors(NSObject *obj) {
         for (unsigned int i = 0; i < count && names.count < 12; i++) {
             NSString *name = NSStringFromSelector(method_getName(methods[i]));
             NSString *lower = name.lowercaseString;
+            // `palette` is here because the 16.7 log named the mechanism:
+            // MusicApplication.PalettePresentationInteraction. Music calls the
+            // full player the "palette", so that is the word its presenter will
+            // be spelled with.
             if ([lower containsString:@"nowplaying"] || [lower containsString:@"expand"] ||
-                [lower containsString:@"handoff"] || [lower containsString:@"presentplayer"]) {
+                [lower containsString:@"handoff"] || [lower containsString:@"presentplayer"] ||
+                [lower containsString:@"palette"]) {
                 if (![names containsObject:name]) [names addObject:name];
             }
         }
@@ -486,17 +493,37 @@ static NSString *M27PresentationSelectors(NSObject *obj) {
     NSArray<UIGestureRecognizer *> *taps = M27TapGesturesNear(mini, 3);
     NSMutableString *why = [NSMutableString string];
     NSInteger firedTargets = 0;
+    id firedTarget = nil;
     for (UIGestureRecognizer *gr in taps) {
-        firedTargets += M27FireGestureTargets(gr, why);
+        firedTargets += M27FireGestureTargets(gr, why, &firedTarget);
         if (firedTargets > 0) break;
     }
 
     if (firedTargets > 0) {
-        M27WriteStatus(@"nowplaying_gesture_fired", @{
-            @"targets": @((long)firedTargets),
-            @"gestures": @((long)taps.count),
-            @"detail": why.length ? why : @"-",
-        });
+        // "Fired a target" is NOT success, and treating it as such would repeat
+        // the mistake this whole path already made twice. iOS 16.7 reports:
+        //
+        //   targets=1 MusicApplication.PalettePresentationInteraction
+        //             .tapGestureRecognized:
+        //
+        // So Music's real handler runs and the player still does not open —
+        // almost certainly the `gr.state` check flagged when this was written,
+        // since the recogniser sits in .possible and state is read-only.
+        //
+        // The passthrough above is the actual fix. This stays as a fallback for
+        // taps outside the stock mini player, and it now names the interaction's
+        // own selectors, so if a build is ever needed that calls the presenter
+        // directly there is a method name rather than another theory.
+        static NSInteger loggedFired = 0;
+        if (loggedFired < 2) {
+            loggedFired++;
+            M27WriteStatus(@"nowplaying_gesture_fired", @{
+                @"targets": @((long)firedTargets),
+                @"gestures": @((long)taps.count),
+                @"detail": why.length ? why : @"-",
+                @"target_sels": M27PresentationSelectors(firedTarget),
+            });
+        }
         mini.userInteractionEnabled = wasInteractive;
         return;
     }
@@ -610,18 +637,45 @@ static NSString *M27PresentationSelectors(NSObject *obj) {
     UIView *mini = miniVC.view;
     if (!mini || mini.hidden || !mini.window) return NO;
 
-    CGRect miniInWindow = [mini convertRect:mini.bounds toView:nil];
-    if (CGRectIsEmpty(miniInWindow)) return NO;
+    // BOTH RECTS MUST BE IN SCREEN COORDINATES.
+    //
+    // 1.1.41 compared them in "window" coordinates and always got inside=no:
+    //
+    //   mini_window={{0, 665}, {375, 64}}   tap_window={51, 30.7}   inside=no
+    //
+    // `convertRect:toView:nil` stops at the *receiver's own* window, and the
+    // dock deliberately lives in a separate overlay UIWindow from Music. So
+    // that compared a strip-relative y of 30 against Music's screen-absolute
+    // 665 — two different origins, and no tap could ever match.
+    //
+    // Converting both through `convertRect:toWindow:nil` puts them on the
+    // screen. The overlap is real once it is measured in one space: with a
+    // track playing the pill occupies roughly screen 660–712 and Music's mini
+    // player 665–729.
+    UIWindow *miniWindow = mini.window;
+    UIWindow *dockWindow = dock.window;
+    if (!miniWindow || !dockWindow) return NO;
 
-    CGPoint pointInWindow = [dock convertPoint:point toView:nil];
-    BOOL inside = CGRectContainsPoint(miniInWindow, pointInWindow);
+    CGRect miniOnScreen = [miniWindow convertRect:[mini convertRect:mini.bounds toView:nil]
+                                         toWindow:nil];
+    if (CGRectIsEmpty(miniOnScreen)) return NO;
 
-    static BOOL loggedOnce = NO;
-    if (!loggedOnce) {
-        loggedOnce = YES;
+    CGPoint tapOnScreen = [dockWindow convertPoint:[dock convertPoint:point toView:nil]
+                                          toWindow:nil];
+    BOOL inside = CGRectContainsPoint(miniOnScreen, tapOnScreen);
+
+    // A handful of lines rather than one: the single 1.1.41 line happened to be
+    // logged while the dock was still in its no-track layout, which made the
+    // numbers look far more wrong than they were.
+    static NSInteger logged = 0;
+    if (logged < 4) {
+        logged++;
         M27WriteStatus(@"passthrough_geometry", @{
-            @"mini_window": NSStringFromCGRect(miniInWindow),
-            @"tap_window": NSStringFromCGPoint(pointInWindow),
+            @"mini_screen": NSStringFromCGRect(miniOnScreen),
+            @"dock_screen": NSStringFromCGRect(
+                [dockWindow convertRect:[dock convertRect:dock.bounds toView:nil]
+                               toWindow:nil]),
+            @"tap_screen": NSStringFromCGPoint(tapOnScreen),
             @"inside": inside ? @"yes" : @"no",
             @"mini_alpha": @((double)mini.alpha),
             @"mini_opacity": @((double)mini.layer.opacity),

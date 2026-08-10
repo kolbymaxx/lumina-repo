@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.41
+Version: 1.1.42
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.41: tapping the mini pill opens the full player. Rather than trying to press a button that does not exist, the pill declines the touch so it reaches Music’s own mini player underneath, which opens the player natively with its lyrics screen.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.42: fixes the coordinate bug that stopped 1.1.41’s passthrough from ever matching — the dock lives in its own window, so the tap and the mini player were being compared in two different coordinate spaces.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks
