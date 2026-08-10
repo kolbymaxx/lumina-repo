@@ -4,29 +4,25 @@
 
 // Music's full-screen player, restyled toward iOS 26/27.
 //
-// WHY THIS SCREEN IS TRACTABLE AND THE ALBUM HEADER WAS NOT.
+// TWO WRONG GUESSES ABOUT THIS SCREEN, BOTH SETTLED BY THE DEVICE.
 //
-// The album Play/Shuffle row cost four builds because it is SwiftUI: the thing
-// that looks like a button is a MusicCoreUI.SymbolButton drawing only the
-// capsule, with the glyph and label rendered as siblings outside its layer
-// subtree. Hiding the "button" left the glyph on screen.
+// First: SwiftPeek's offline catalog described
+// MusicApplication.NowPlayingControlsViewController as a UIKit controller with
+// named ivars for the whole layout — artworkView, titleLabel, timeControl,
+// transportControlsStackView and the rest. 1.1.39 reported the class here is
+// MusicNowPlayingControlsViewController, plain ObjC, with all 21 of those names
+// `missing`. The catalog was built from a different Music build.
 //
-// The full player is not like that. SwiftPeek's offline field catalog gives
-// MusicApplication.NowPlayingControlsViewController as a plain UIKit controller
-// with named ivars for every part of the iOS 27 layout:
+// Second: so 1.1.40 enumerated whatever object-typed ivars the class really
+// has. 1.1.45 answered `count=1`, that one being `_view` — the controller's own
+// view, a MusicApplication.TintColorObservingView. This controller holds none of
+// its controls as properties.
 //
-//   artworkView · titleLabel · subtitleButton · favoriteButton · contextButton
-//   timeControl · transportControlsStackView · leftButton · playPauseStopButton
-//   rightButton · volumeSlider · bottomButtonsStackView · lyricsButton
-//   routeButton · queueButton · grabberView · backgroundView
+// So the controls are in the view tree, and that is what M27ReportNowPlayingTree
+// records: class and frame, breadth-first, capped, no ivar reads. Layout work
+// waits on that line rather than on a third guess.
 //
-// So this restyles real views instead of guessing at a render tree.
-//
-// FIRST PASS IS DELIBERATELY SMALL. Everything here is reversible and visually
-// obvious, and the build's main job is to write `nowplaying_controls` naming
-// every ivar it found with its real frame. Guessing geometry from screenshots is
-// what the hazard registry calls asserting a cause from a symptom; one log line
-// from the device replaces all of it. Pref-gated OFF by default.
+// Pref-gated OFF by default.
 
 static const void *kM27NowPlayingRadiusKey = &kM27NowPlayingRadiusKey;
 
@@ -129,6 +125,52 @@ static void M27ReportRealIvars(UIViewController *vc) {
     });
 }
 
+/// The controls live in the VIEW TREE, not in controller ivars.
+///
+/// 1.1.45 enumerated every object-typed ivar on the controller and came back
+/// with `count=1 views=_view:MusicApplication.TintColorObservingView` — the
+/// controller's own view and nothing else. So the second guess was wrong for the
+/// same reason as the first: this controller does not hold its controls as named
+/// properties at all, whatever the offline catalog said about a different build.
+///
+/// Walk the tree instead and record what is actually on screen. Class name and
+/// frame only, breadth-first, hard-capped — no ivar reads, nothing dereferenced.
+static void M27ReportNowPlayingTree(UIViewController *vc) {
+    NSMutableArray<NSString *> *rows = [NSMutableArray array];
+    NSMutableArray<UIView *> *queue = [NSMutableArray array];
+    NSMutableArray<NSNumber *> *depths = [NSMutableArray array];
+    if (vc.isViewLoaded && vc.view) {
+        [queue addObject:vc.view];
+        [depths addObject:@0];
+    }
+
+    while (queue.count > 0 && rows.count < 60) {
+        UIView *view = queue.firstObject;
+        NSInteger depth = depths.firstObject.integerValue;
+        [queue removeObjectAtIndex:0];
+        [depths removeObjectAtIndex:0];
+
+        // Only things big enough to matter, and skip the fully transparent.
+        CGRect f = view.frame;
+        if (f.size.width >= 8.0 && f.size.height >= 8.0 && view.alpha > 0.01 && !view.hidden) {
+            [rows addObject:[NSString stringWithFormat:@"%ld|%@%@",
+                             (long)depth, NSStringFromClass(view.class),
+                             NSStringFromCGRect(f)]];
+        }
+        if (depth >= 4) continue;
+        for (UIView *sub in view.subviews) {
+            [queue addObject:sub];
+            [depths addObject:@(depth + 1)];
+        }
+    }
+
+    M27WriteStatus(@"nowplaying_tree", @{
+        @"vc": NSStringFromClass(vc.class),
+        @"rows": @((long)rows.count),
+        @"tree": rows.count ? [rows componentsJoinedByString:@" "] : @"none",
+    });
+}
+
 static void M27ReportNowPlayingControls(UIViewController *vc) {
     NSMutableDictionary *info = [NSMutableDictionary dictionary];
     NSMutableArray<NSString *> *missing = [NSMutableArray array];
@@ -217,6 +259,7 @@ static void M27StyleNowPlayingControls(UIViewController *vc) {
     // to learn this screen's real shape, and that costs one log line.
     M27ReportNowPlayingControls(self);
     M27ReportRealIvars(self);
+    M27ReportNowPlayingTree(self);
     M27StyleNowPlayingControls(self);
 }
 

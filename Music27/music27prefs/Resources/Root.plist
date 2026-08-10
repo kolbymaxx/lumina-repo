@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.45: the glass is see-through. Three things were stacking opacity — chrome blur material, a white tint on top of it, and a highlight covering the top half of every pill — so the result was flat grey with no artwork visible behind it. Ultra-thin material now, a barely-there tint, and the highlight reduced to a hairline along the top edge. The dock also hides before the full player animates in, instead of after it has finished, so it no longer shows over the player for a moment.</string>
+			<string>1.1.46: collapsed is three separate capsules — the tab button, the now-playing pill, and Search — instead of one merged pill, matching iOS 27. It also keeps the same height as the expanded dock, which is what makes tapping the collapsed artwork open the full player: the pill now sits over Music’s own mini player in both modes, where before it dropped 54 points below it and had nothing to hand the tap to.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -122,7 +122,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.45 — see-through glass; dock hides before the player animates. Verify on iOS 16.7 + 17.3 before APT.</string>
+			<string>Music27 1.1.46 — three collapsed capsules; collapsed tap opens the player. Verify on iOS 16.7 + 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>
