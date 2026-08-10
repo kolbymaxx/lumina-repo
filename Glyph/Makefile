@@ -11,10 +11,13 @@ TWEAK_NAME = Glyph
 Glyph_FILES = src/Tweak.x \
 	src/GLPrefs.m \
 	src/GLThemeStore.m \
-	src/GLIconCache.m
+	src/GLIconCache.m \
+	src/GLRecipeBuilder.m \
+	src/GLComposite.m \
+	src/GLPixelKit.c
 
 Glyph_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -DDISABLE_ROOTLESS_COMPAT_WARNING=1
-Glyph_FRAMEWORKS = UIKit Foundation
+Glyph_FRAMEWORKS = UIKit Foundation CoreGraphics
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 

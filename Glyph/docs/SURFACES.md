@@ -18,7 +18,7 @@ Status legend:
 | Home Screen icon grid | CONFIRMED UIKIT | CONFIRMED UIKIT | `SBIconView` / `SBIconImageView` present on both firmwares; no SwiftUI icon view exists on the grid | B — hook `-[SBIconImageView setContentsImage:]` |
 | Dock icons | CONFIRMED UIKIT | CONFIRMED UIKIT | Same `SBIconImageView` pipeline as the grid | B — same hook, no extra code |
 | Folder icons (mini-grids) | CONFIRMED UIKIT | CONFIRMED UIKIT | Folder blur/mini-icons composed from the same icon images | B — themed automatically via the icon pipeline; folder background theming deferred to D |
-| Notification badges | CONFIRMED UIKIT | CONFIRMED UIKIT | `SBIconBadgeView` (UIKit) | D — badge asset theming, classic hook |
+| Notification badges | CONFIRMED UIKIT | CONFIRMED UIKIT | `SBIconBadgeView` (UIKit) | D — badge asset theming, classic hook (not yet implemented) |
 | Lock Screen widgets | PENDING DUMP | PENDING DUMP | Expected SwiftUI-hosted (WidgetKit); needs SwiftPeek dump from SpringBoard with `dumpFields` on, lock screen visible | C candidate — `CALayer.contents` boundary only, after dump confirms |
 | App Library detail panes | PENDING DUMP | PENDING DUMP | Expected partially SwiftUI on 17.x; unknown on 16.7 | C candidate — after dump confirms |
 | Spotlight | PENDING DUMP | PENDING DUMP | Expected mixed UIKit/SwiftUI | C candidate — after dump confirms |
@@ -33,8 +33,16 @@ Status legend:
 
 ## How to fill in a PENDING DUMP row
 
-1. Enable SwiftPeek (`enabled` + `dumpFields`) on the device, injected into
-   SpringBoard, and bring the surface on screen (respring for lock screen).
+SwiftPeek was Music-only through 0.3.6 (it put SpringBoard into Safe Mode at
+0.2.1), so none of these rows could be resolved. **SwiftPeek 0.4.0 adds an
+opt-in SpringBoard mode** built for exactly this: ObjC-only, no hooks, no Swift
+metadata walks, and two independent switches that both default off —
+`targetSpringBoard` to allow injection at all, then `sbScanWindows` for the
+hook-free hosting-view scan that answers the UIKit-vs-SwiftUI question.
+
+1. Enable SwiftPeek (`enabled` + `targetSpringBoard` + `sbScanWindows`, plus
+   `dumpFields` for on-screen strings) and bring the surface on screen
+   (respring for lock screen).
 2. Pull the dump JSON from
    `$jbroot/var/mobile/Library/SwiftPeek/dumps/SpringBoard_<timestamp>.json`.
 3. If the dump shows a `_UIHostingView` whose Swift type resolves to that

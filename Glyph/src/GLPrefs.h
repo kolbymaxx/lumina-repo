@@ -10,6 +10,9 @@ NSString *GLJailbreakRootPrefix(void);
 NSDictionary *GLPrefs(void);
 BOOL GLPrefBool(NSString *key, BOOL fallback);
 NSArray *_Nullable GLPrefArray(NSString *key);
+double GLPrefDouble(NSString *key, double fallback);
+NSInteger GLPrefInteger(NSString *key, NSInteger fallback);
+NSString *_Nullable GLPrefString(NSString *key);
 void GLPrefsInvalidate(void);
 
 /// Candidate prefs file paths (jbroot -> /var/jb -> rootfs), for diagnostics.

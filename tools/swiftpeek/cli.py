@@ -9,6 +9,8 @@
   python3 -m swiftpeek find annotated.json artwork
   python3 -m swiftpeek targets annotated.json
   python3 -m swiftpeek scaffold annotated.json -o ~/Tweaks/MyMusicTweak --name MyMusicTweak
+  python3 -m swiftpeek icons SpringBoard_dump.json
+  python3 -m swiftpeek tint-plan SpringBoard_dump.json --mode 4 -o plan.json
 """
 from __future__ import annotations
 
@@ -23,6 +25,14 @@ if __name__ == "__main__" and (__package__ is None or __package__ == ""):
     __package__ = "swiftpeek"
 
 from .api import FieldCatalog, PeekSession, annotate_dump, load_dump
+from .icons import (
+    MODE_NAMES,
+    build_tint_plan,
+    classify_icon,
+    format_icons,
+    iter_icons,
+    load_icon_dump,
+)
 from .paths import DEFAULT_CATALOG
 from .scaffold import format_targets, rank_targets, write_scaffold
 
@@ -161,6 +171,45 @@ def _cmd_scaffold(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_icons(args: argparse.Namespace) -> int:
+    if not args.dump.is_file():
+        print(f"missing dump: {args.dump}", file=sys.stderr)
+        return 1
+    dump = load_icon_dump(args.dump)
+    verdicts = [classify_icon(e) for e in iter_icons(dump)]
+    if not verdicts:
+        print("no `icons` array in this dump — is it a SpringBoard 0.4.0 dump "
+              "with iconInventory on?", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps([v.as_dict() for v in verdicts], indent=2))
+        return 0
+
+    print(format_icons(verdicts, limit=args.limit))
+    themed = sum(1 for v in verdicts if v.themed)
+    needs = sum(1 for v in verdicts if v.settings)
+    print(f"\n{len(verdicts)} icons · {themed} already themed · "
+          f"{needs} want a per-app override", file=sys.stderr)
+    return 0
+
+
+def _cmd_tint_plan(args: argparse.Namespace) -> int:
+    if not args.dump.is_file():
+        print(f"missing dump: {args.dump}", file=sys.stderr)
+        return 1
+    plan = build_tint_plan(load_icon_dump(args.dump), mode=args.mode, tint=args.tint)
+    text = json.dumps(plan, indent=2) + "\n"
+    if args.output:
+        args.output.write_text(text)
+    else:
+        sys.stdout.write(text)
+    s = plan["summary"]
+    print(f"# {s['icons']} icons → {s['needs_override']} per-app overrides "
+          f"(mode {plan['global']['mode_name']})", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="swiftpeek", description=__doc__)
     ap.add_argument(
@@ -224,6 +273,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("-n", "--limit", type=int, default=12, help="targets listed in TARGETS.md")
     p.set_defaults(func=_cmd_scaffold)
+
+    p = sub.add_parser("icons", help="classify a SpringBoard icon-inventory dump")
+    p.add_argument("dump", type=Path)
+    p.add_argument("-n", "--limit", type=int, default=0, help="0 = no limit")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=_cmd_icons)
+
+    p = sub.add_parser("tint-plan", help="emit Glyph per-app settings from an inventory dump")
+    p.add_argument("dump", type=Path)
+    p.add_argument("-o", "--output", type=Path)
+    p.add_argument("--mode", type=int, default=1,
+                   help="Glyph iconMode: " +
+                        ", ".join(f"{k}={v}" for k, v in sorted(MODE_NAMES.items())))
+    p.add_argument("--tint", default="#FF5FB2", help="tint colour, #rrggbb")
+    p.set_defaults(func=_cmd_tint_plan)
 
     args = ap.parse_args(argv)
     return args.func(args)

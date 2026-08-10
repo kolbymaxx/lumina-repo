@@ -102,6 +102,38 @@ NSArray *GLPrefArray(NSString *key) {
     return result;
 }
 
+/// Shared plist-then-CFPreferences lookup for the scalar getters below.
+/// PreferenceLoader writes through cfprefsd, and on rootless the on-disk plist
+/// can lag behind it, so both sources have to be consulted.
+static id GLPrefValue(NSString *key) {
+    id v = GLPrefs()[key];
+    if (v != nil) return v;
+
+    CFPropertyListRef cfVal = CFPreferencesCopyAppValue(
+        (__bridge CFStringRef)key, (__bridge CFStringRef)kGLPrefsDomain);
+    if (cfVal == NULL) return nil;
+    return (__bridge_transfer id)cfVal;
+}
+
+double GLPrefDouble(NSString *key, double fallback) {
+    id v = GLPrefValue(key);
+    if ([v isKindOfClass:[NSNumber class]]) return [v doubleValue];
+    if ([v isKindOfClass:[NSString class]]) return [v doubleValue];
+    return fallback;
+}
+
+NSInteger GLPrefInteger(NSString *key, NSInteger fallback) {
+    id v = GLPrefValue(key);
+    if ([v isKindOfClass:[NSNumber class]]) return [v integerValue];
+    if ([v isKindOfClass:[NSString class]]) return [v integerValue];
+    return fallback;
+}
+
+NSString *GLPrefString(NSString *key) {
+    id v = GLPrefValue(key);
+    return [v isKindOfClass:[NSString class]] ? v : nil;
+}
+
 void GLPrefsInvalidate(void) {
     gGLPrefsCache = nil;
     gGLPrefsLastLoad = 0;

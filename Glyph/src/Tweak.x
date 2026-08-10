@@ -3,6 +3,7 @@
 #import "GLPrefs.h"
 #import "GLThemeStore.h"
 #import "GLIconCache.h"
+#import "GLRecipeBuilder.h"
 
 // -----------------------------------------------------------------------------
 // Glyph — Phase B: UIKit icon engine (the SnowBoard-compatible core)
@@ -62,12 +63,51 @@ static NSString *GLIdentifierForIcon(id icon) {
     return nil;
 }
 
-/// Themed replacement for the image about to land on an icon view, or nil to
-/// leave the stock image untouched. Never throws.
-static UIImage *GLThemedImageForIconView(SBIconImageView *iconView, UIImage *incoming) {
+#pragma mark - Provenance
+
+// Phase D composites *from* the stock bitmap, not just from a theme PNG, which
+// creates a hazard Phase B did not have: the refresh pass re-feeds an icon
+// view's current image, and after the first pass that image is Glyph's own
+// output. Compositing it again would stack tint on tint every time a
+// preference changed. So mark what we produce, and remember the stock bitmap
+// each view was originally handed.
+static const void *kGLMarkKey = &kGLMarkKey;
+static const void *kGLOriginalKey = &kGLOriginalKey;
+
+static inline BOOL GLImageIsOurs(UIImage *image) {
+    return image && objc_getAssociatedObject(image, kGLMarkKey) != nil;
+}
+
+static inline void GLMarkImageAsOurs(UIImage *image) {
+    if (image) {
+        objc_setAssociatedObject(image, kGLMarkKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+}
+
+/// The stock bitmap for this icon view: the incoming image when SpringBoard
+/// hands us a fresh one, or the one we stashed the first time if we are being
+/// re-fed our own output.
+static UIImage *GLResolveStockImage(SBIconImageView *iconView, UIImage *incoming) {
+    if (!GLImageIsOurs(incoming)) {
+        if (incoming) {
+            objc_setAssociatedObject(iconView, kGLOriginalKey, incoming,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        return incoming;
+    }
+    return objc_getAssociatedObject(iconView, kGLOriginalKey);
+}
+
+#pragma mark - Substitution
+
+/// Replacement for the image about to land on an icon view, or nil to leave the
+/// stock image untouched. Never throws.
+static UIImage *GLThemedImageForIconView(SBIconImageView *iconView, UIImage *stock) {
     @try {
         if (!GLPrefBool(@"enabled", NO)) return nil;
-        if (![GLThemeStore hasActiveThemes]) return nil;
+        // Phase D: a tint or glass recipe applies to every icon, so an active
+        // recipe is reason enough to act even with no theme installed.
+        if (![GLThemeStore hasActiveThemes] && !GLRecipeCompositingActive()) return nil;
 
         id icon = [iconView respondsToSelector:@selector(icon)] ? [iconView icon] : nil;
         NSString *identifier = GLIdentifierForIcon(icon);
@@ -77,15 +117,19 @@ static UIImage *GLThemedImageForIconView(SBIconImageView *iconView, UIImage *inc
         // labels line up; fall back to the view's own bounds.
         CGSize size = CGSizeZero;
         CGFloat scale = 0;
-        if (incoming && incoming.size.width >= 1.0 && incoming.size.height >= 1.0) {
-            size = incoming.size;
-            scale = incoming.scale;
+        if (stock && stock.size.width >= 1.0 && stock.size.height >= 1.0) {
+            size = stock.size;
+            scale = stock.scale;
         } else if (iconView.bounds.size.width >= 1.0) {
             size = iconView.bounds.size;
         }
-        return [[GLIconCache shared] imageForBundleID:identifier
-                                            pointSize:size
-                                                scale:scale];
+
+        UIImage *result = [[GLIconCache shared] imageForBundleID:identifier
+                                                      stockImage:stock
+                                                       pointSize:size
+                                                           scale:scale];
+        GLMarkImageAsOurs(result);
+        return result;
     } @catch (__unused id e) {
         return nil;   // fail closed — stock icon
     }
@@ -98,8 +142,9 @@ static UIImage *GLThemedImageForIconView(SBIconImageView *iconView, UIImage *inc
 %hook SBIconImageView
 
 - (void)setContentsImage:(UIImage *)image {
-    UIImage *themed = image ? GLThemedImageForIconView(self, image) : nil;
-    %orig(themed ?: image);
+    UIImage *stock = GLResolveStockImage(self, image);
+    UIImage *themed = stock ? GLThemedImageForIconView(self, stock) : nil;
+    %orig(themed ?: (stock ?: image));
 }
 
 %end
@@ -115,7 +160,8 @@ static UIImage *GLThemedImageForIconView(SBIconImageView *iconView, UIImage *inc
 /// install and on theme/prefs changes.
 static void GLRefreshVisibleIcons(void) {
     if (!gGLHooksInstalled) return;
-    if (!GLPrefBool(@"enabled", NO) || ![GLThemeStore hasActiveThemes]) return;
+    if (!GLPrefBool(@"enabled", NO)) return;
+    if (![GLThemeStore hasActiveThemes] && !GLRecipeCompositingActive()) return;
 
     @try {
         Class iconImageViewClass = NSClassFromString(@"SBIconImageView");

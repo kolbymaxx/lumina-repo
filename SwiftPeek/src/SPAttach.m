@@ -6,6 +6,8 @@
 #import "SPSwiftMeta.h"
 #import "SPDumpWriter.h"
 #import "SPFieldWalk.h"
+#import "SPRenderPeek.h"
+#import "SPIconPeek.h"
 
 // -----------------------------------------------------------------------------
 // SwiftPeek — read-only SwiftUI inspector (Phase 1 / milestones 1–2)
@@ -642,12 +644,22 @@ static void SPOnImageAdded(const struct mach_header *mh, intptr_t slide) {
     });
 }
 
+static BOOL SPIsSpringBoard(void) {
+    NSString *bundle = NSBundle.mainBundle.bundleIdentifier ?: @"";
+    return [bundle isEqualToString:@"com.apple.springboard"];
+}
+
 static BOOL SPIsAllowedProcess(void) {
     NSString *name = NSProcessInfo.processInfo.processName ?: @"";
     NSString *bundle = NSBundle.mainBundle.bundleIdentifier ?: @"";
-    // Music only — never touch SpringBoard (Swift-linked dylib + SB = Safe Mode).
     if ([name isEqualToString:@"Music"]) return YES;
     if ([bundle isEqualToString:@"com.apple.Music"]) return YES;
+    // 0.4.0: SpringBoard is allowed again, but only for the icon inventory and
+    // only when the user has explicitly opted in. 0.2.1 put SpringBoard into
+    // Safe Mode with a Swift-linked dylib doing window scans; the way back in is
+    // an ObjC-only build that installs no hooks, walks no view tree, and reads
+    // icons through UIKit rather than SBIconModel.
+    if (SPIsSpringBoard()) return SPPrefBool(@"targetSpringBoard", NO);
     return NO;
 }
 
@@ -668,7 +680,10 @@ static void SPScanWindowsForHosts(void) {
         NSMutableArray *viewClassSample = [NSMutableArray array];
         NSMutableSet *sampleSeen = [NSMutableSet set];
         __block NSInteger hostsFound = 0;
-        BOOL wantMeta = SPPrefBool(@"dumpFieldMeta", NO);
+        // FOVO stays hard-off in SpringBoard regardless of the pref. The
+        // SpringBoard path exists to answer "UIKit or SwiftUI?", and that is
+        // answerable from class names alone.
+        BOOL wantMeta = SPPrefBool(@"dumpFieldMeta", NO) && !SPIsSpringBoard();
 
         void (^captureHost)(UIView *) = ^(UIView *host) {
             if (!host || !SPViewIsHostingView(host)) return;
@@ -852,7 +867,72 @@ static void SPScanWindowsForHosts(void) {
     }
 }
 
+/// SpringBoard-side entry point (0.4.0). Deliberately tiny: one inventory pass,
+/// off the main thread, no hooks, no view walking. Everything it needs comes
+/// from UIKit + LSApplicationWorkspace, so the icon model is never touched.
+static void SPRunIconInventory(NSString *reason) {
+    if (!SPIconPeekAvailable()) return;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        @try {
+            NSArray *icons = SPIconInventory(220);
+            NSInteger themed = 0;
+            for (NSDictionary *icon in icons) {
+                if (icon[@"theme_override"]) themed++;
+            }
+            NSString *msg = [NSString stringWithFormat:
+                @"icon inventory (%@) icons=%lu themed=%ld",
+                reason ?: @"timer", (unsigned long)icons.count, (long)themed];
+            NSString *path = SPWriteJSONDump(@{
+                @"milestone": @4,
+                @"icons": icons,
+                @"icon_theme_paths": SPIconThemeSearchPaths(),
+                @"message": msg,
+                @"nodes": @[],
+            });
+            SPWriteHeartbeat(path ? msg : @"icon inventory dump write failed", NO, @[], @[]);
+            NSLog(@"[SwiftPeek] %@", msg);
+        } @catch (__unused id e) {
+            SPWriteHeartbeat(@"icon inventory failed closed", NO, @[], @[]);
+        }
+    });
+}
+
+static void SPIconsRequestedCallback(CFNotificationCenterRef center, void *observer,
+                                     CFStringRef name, const void *object,
+                                     CFDictionaryRef userInfo) {
+    (void)center; (void)observer; (void)name; (void)object; (void)userInfo;
+    SPPrefsInvalidate();
+    SPRunIconInventory(@"notification");
+}
+
 static void SPStartIfEnabled(void) {
+    if (SPIsSpringBoard()) {
+        // SpringBoard never installs hooks and never walks Swift metadata —
+        // the icon inventory, plus an optional hook-free hosting-view scan that
+        // is what resolves Glyph's PENDING DUMP surface rows.
+        if (!SPPrefBool(@"enabled", NO) || !SPPrefBool(@"targetSpringBoard", NO)) return;
+        BOOL sbScan = SPPrefBool(@"sbScanWindows", NO);
+        NSLog(@"[SwiftPeek] SpringBoard recon mode (0.4.0) iconInventory=%d sbScanWindows=%d",
+              SPPrefBool(@"iconInventory", NO) ? 1 : 0, sbScan ? 1 : 0);
+        SPRunIconInventory(@"launch");
+
+        if (sbScan) {
+            static dispatch_once_t sbScanOnce;
+            dispatch_once(&sbScanOnce, ^{
+                // Long delay on purpose: well clear of launch, and late enough
+                // that the first home screen has settled.
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(25.0 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    if (!SPPrefBool(@"enabled", NO)) return;
+                    if (!SPPrefBool(@"targetSpringBoard", NO)) return;
+                    if (!SPPrefBool(@"sbScanWindows", NO)) return;
+                    SPScanWindowsForHosts();
+                });
+            });
+        }
+        return;
+    }
+
     if (!SPPrefBool(@"enabled", NO)) {
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
             SPWriteHeartbeat(@"ctor disabled (kill switch)", NO, @[], @[]);
