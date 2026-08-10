@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.44
+Version: 1.1.45
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.44: the dock hides while the full-screen player is open, the collapsed pill expands instead of doing nothing, and the private gesture-firing code implicated in an iOS 17 crash is gone.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.45: the pills are actually see-through now — chrome material and two layers of white wash were making them flat grey. The dock also hides before the full player animates in rather than after.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks

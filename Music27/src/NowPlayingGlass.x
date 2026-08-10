@@ -179,6 +179,20 @@ static void M27StyleNowPlayingControls(UIViewController *vc) {
 
 %hook UIViewController
 
+// HIDE ON viewWillAppear, NOT viewDidAppear.
+//
+// 1.1.44 hid the dock once the player had finished appearing, which is a whole
+// presentation animation too late — the pills stayed visible over the player
+// for the length of the slide-up. viewWillAppear runs before the animation
+// starts, so they are gone before the player is ever on screen.
+- (void)viewWillAppear:(BOOL)animated {
+    %orig;
+    if (!M27IsNowPlayingControls(self)) return;
+    M27Prefs *prefs = M27Prefs.shared;
+    if (!(prefs.enabled && prefs.glassTabBarEnabled)) return;
+    M27SetDockOverlayHidden(YES);
+}
+
 - (void)viewWillDisappear:(BOOL)animated {
     %orig;
     if (!M27IsNowPlayingControls(self)) return;
