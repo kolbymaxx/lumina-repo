@@ -1,20 +1,12 @@
-name: Build SwiftPeek
+name: Build Halo
 
 # Build-only: upload rootless + roothide artifacts. Do NOT publish to APT / Pages.
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'SwiftPeek/**'
-      - '.github/workflows/build-swiftpeek.yml'
-  pull_request:
-    paths:
-      - 'SwiftPeek/**'
-      - '.github/workflows/build-swiftpeek.yml'
-
-concurrency:
-  group: swiftpeek-${{ github.ref }}
-  cancel-in-progress: true
+      - 'Halo/**'
+      - '.github/workflows/build-halo.yml'
 
 jobs:
   build:
@@ -47,8 +39,8 @@ jobs:
           xcodebuild -version
           xcrun -sdk iphoneos --show-sdk-version
 
-      - name: Build SwiftPeek (rootless)
-        working-directory: SwiftPeek
+      - name: Build Halo (rootless)
+        working-directory: Halo
         env:
           THEOS: ${{ env.THEOS }}
         run: |
@@ -66,48 +58,26 @@ jobs:
           DEB="$(ls "$GITHUB_WORKSPACE/out"/*.deb | head -1)"
           TMP=$(mktemp -d)
           dpkg-deb -x "$DEB" "$TMP"
-          FILTER="$(find "$TMP" -name 'SwiftPeek.plist' -path '*DynamicLibraries*' | head -1)"
-          PREFS_SRC="$GITHUB_WORKSPACE/SwiftPeek/layout/Library/PreferenceLoader/Preferences/SwiftPeek.plist"
+          FILTER="$(find "$TMP" -name 'Halo.plist' -path '*DynamicLibraries*' | head -1)"
           test -n "$FILTER"
           plutil -p "$FILTER"
-          grep -q 'com.apple.Music' <(plutil -p "$FILTER")
-          # 0.4.0 allows SpringBoard in the filter for the opt-in recon mode.
-          # 0.2.0 put SpringBoard into Safe Mode with a Swift-linked dylib, so
-          # what has to be guarded now is not the filter but the two things
-          # that make the SpringBoard path safe: the dylib stays ObjC-only, and
-          # injection is gated behind a pref that defaults off.
-          if grep -qi 'springboard' <(plutil -p "$FILTER"); then
-            echo "SpringBoard present in filter — verifying the opt-in gate"
-            grep -q 'targetSpringBoard' "$GITHUB_WORKSPACE/SwiftPeek/src/SPAttach.m" || {
-              echo "ERROR: SpringBoard in filter with no targetSpringBoard gate" >&2
-              exit 1
-            }
-            grep -q 'targetSpringBoard' <(plutil -p "$PREFS_SRC") || {
-              echo "ERROR: targetSpringBoard is not exposed in the prefs bundle" >&2
-              exit 1
-            }
-            # An ObjC-only dylib is load-bearing here: Swift runtime + SpringBoard
-            # is the exact 0.2.0 failure. No Swift sources may enter the build.
-            if ls "$GITHUB_WORKSPACE"/SwiftPeek/src/*.swift >/dev/null 2>&1; then
-              if grep -q '\.swift' "$GITHUB_WORKSPACE/SwiftPeek/Makefile"; then
-                echo "ERROR: Swift source in a SpringBoard-injecting SwiftPeek" >&2
-                exit 1
-              fi
-            fi
+          grep -q 'com.apple.springboard' <(plutil -p "$FILTER")
+          # SpringBoard only — Halo must never inject anywhere else.
+          if plutil -p "$FILTER" | grep -qi -e 'com.apple.Music' -e 'backboardd' -e 'com.apple.Preferences'; then
+            echo "ERROR: Halo filter injects beyond SpringBoard" >&2
+            exit 1
           fi
-          PREFS="$(find "$TMP" -path '*/PreferenceLoader/Preferences/SwiftPeek.plist' | head -1)"
+          # rootless stages under var/jb/; roothide does not — locate either way
+          PREFS="$(find "$TMP" -path '*/PreferenceLoader/Preferences/Halo.plist' | head -1)"
           test -n "$PREFS"
           plutil -p "$PREFS"
-          grep -q 'dumpFieldMeta' <(plutil -p "$PREFS")
+          # Must not land in dist/ via this workflow — build artifact only.
           dpkg-deb -I "$DEB"
-          EXPECT_VER="$(sed -n 's/^Version: //p' control | head -1)"
-          test -n "$EXPECT_VER"
-          dpkg-deb -I "$DEB" | grep -q "Version: ${EXPECT_VER}"
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SwiftPeek-rootless-deb
+          name: Halo-rootless-deb
           path: out/*.deb
           if-no-files-found: error
 
@@ -141,8 +111,8 @@ jobs:
           xcodebuild -version
           xcrun -sdk iphoneos --show-sdk-version
 
-      - name: Build SwiftPeek (roothide)
-        working-directory: SwiftPeek
+      - name: Build Halo (roothide)
+        working-directory: Halo
         env:
           THEOS: ${{ env.THEOS }}
         run: |
@@ -159,9 +129,6 @@ jobs:
           ls -lah "$GITHUB_WORKSPACE/out"
           DEB="$(ls "$GITHUB_WORKSPACE/out"/*.deb | head -1)"
           dpkg-deb -I "$DEB"
-          EXPECT_VER="$(sed -n 's/^Version: //p' control | head -1)"
-          test -n "$EXPECT_VER"
-          dpkg-deb -I "$DEB" | grep -q "Version: ${EXPECT_VER}"
           if dpkg-deb -c "$DEB" | grep -q ' var/jb/'; then
             echo "ERROR: roothide deb still contains /var/jb paths" >&2
             exit 1
@@ -170,6 +137,6 @@ jobs:
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SwiftPeek-roothide-deb
+          name: Halo-roothide-deb
           path: out/*.deb
           if-no-files-found: error

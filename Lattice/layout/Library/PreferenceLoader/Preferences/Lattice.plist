@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>entry</key>
+	<dict>
+		<key>cell</key>
+		<string>PSLinkCell</string>
+		<key>icon</key>
+		<string></string>
+		<key>label</key>
+		<string>Lattice</string>
+	</dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Any grid you like on the Home Screen. iOS has never allowed a custom grid size, and free icon placement only arrived in iOS 18 — neither is on 16.7 or 17.x. Lattice changes the layout numbers and nothing else: it never moves, adds or removes an icon, so the worst a wrong setting can do is look bad until you change it back.</string>
+			<key>label</key>
+			<string>Lattice</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.lattice/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.lattice</string>
+			<key>key</key>
+			<string>enabled</string>
+			<key>label</key>
+			<string>Enable Lattice</string>
+		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Rows and columns per page. Landscape follows portrait (swapped) unless you set the landscape values yourself. Changes apply straight away; if a page does not redraw, respring.</string>
+			<key>label</key>
+			<string>Grid</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.lattice/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.lattice</string>
+			<key>key</key>
+			<string>overrideGrid</string>
+			<key>label</key>
+			<string>Custom Grid</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.lattice/prefschanged</string>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<integer>6</integer>
+			<key>defaults</key>
+			<string>com.kolby.lattice</string>
+			<key>key</key>
+			<string>rows</string>
+			<key>label</key>
+			<string>Rows</string>
+			<key>min</key>
+			<real>2</real>
+			<key>max</key>
+			<real>12</real>
+			<key>isSegmented</key>
+			<true/>
+			<key>segmentCount</key>
+			<integer>11</integer>
+			<key>showValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.lattice/prefschanged</string>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<integer>4</integer>
+			<key>defaults</key>
+			<string>com.kolby.lattice</string>
+			<key>key</key>
+			<string>columns</string>
+			<key>label</key>
+			<string>Columns</string>
+			<key>min</key>
+			<real>2</real>
+			<key>max</key>
+			<real>10</real>
+			<key>isSegmented</key>
+			<true/>
+			<key>segmentCount</key>
+			<integer>9</integer>
+			<key>showValue</key>
+			<true/>
+		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>The dock is laid out by the same configuration object as the icon pages, so Lattice tells them apart by row count — a dock is always one row. Leave this off and the dock keeps its stock width no matter what the grid is set to.</string>
+			<key>label</key>
+			<string>Dock</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.lattice/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.lattice</string>
+			<key>key</key>
+			<string>overrideDock</string>
+			<key>label</key>
+			<string>Custom Dock Width</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.lattice/prefschanged</string>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<integer>4</integer>
+			<key>defaults</key>
+			<string>com.kolby.lattice</string>
+			<key>key</key>
+			<string>dockColumns</string>
+			<key>label</key>
+			<string>Dock Icons</string>
+			<key>min</key>
+			<real>1</real>
+			<key>max</key>
+			<real>8</real>
+			<key>isSegmented</key>
+			<true/>
+			<key>segmentCount</key>
+			<integer>8</integer>
+			<key>showValue</key>
+			<true/>
+		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Labels</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.lattice/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.lattice</string>
+			<key>key</key>
+			<string>hideLabels</string>
+			<key>label</key>
+			<string>Hide Icon Labels</string>
+		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Diagnostics</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.lattice/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.lattice</string>
+			<key>key</key>
+			<string>logEvents</string>
+			<key>label</key>
+			<string>Log Events (os_log / NSLog)</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Emergency kill switch: create the file com.kolby.lattice.killswitch in /var/mobile/Library/Preferences (via SSH or Filza) and respring to restore the stock layout without uninstalling.</string>
+			<key>label</key>
+			<string>Safety</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Lattice • by ma6x9x — layout numbers only, never the icon model</string>
+		</dict>
+	</array>
+	<key>title</key>
+	<string>Lattice</string>
+</dict>
+</plist>

@@ -27,6 +27,24 @@ Cache-extracted dylibs often leave mangled *type* strings as `<unresolved>`
 when the relative pointer lands outside the file. Field *names* still resolve;
 a high unresolved rate means lossy extraction, not missing metadata.
 
+## `glyph-preview`
+
+Glyph's composite kernels (`Glyph/src/GLPixelKit.c`) are plain C with no
+Foundation and no UIKit, so the colour maths can be exercised here instead of
+being seen for the first time on a device that can Safe Mode.
+
+```bash
+cc -O2 -o tools/glyph-preview tools/glyph-preview.c Glyph/src/GLPixelKit.c -lm
+./tools/glyph-preview /tmp/glyph-sheet.png
+```
+
+Renders a contact sheet: every Glyph mode (stock, tinted, light tinted, dark,
+glass, glass dark, tinted glass) across three icon shapes (full-bleed,
+glyph-only, flat solid), composited over a stand-in wallpaper so translucency
+is visible. Prints per-cell statistics and **exits non-zero** if a kernel
+reports failure or produces an empty bitmap, so it works as a regression check
+as well as an eyeball test.
+
 ## Drift sweep
 
 ```bash
@@ -61,7 +79,17 @@ PYTHONPATH=tools python3 -m swiftpeek find ~/Downloads/annotated.json artwork
 Legacy wrappers `annotate-dump.py` / `peek-query.py` still work.
 See [`SwiftPeek/docs/READ_API.md`](../SwiftPeek/docs/READ_API.md).
 
+### Icon inventory → Glyph tint plan
+
+SwiftPeek 0.4.0 SpringBoard dumps carry an `icons` array with a pixel signature
+per app. The analyser classifies each one and emits Glyph `perApp` settings:
+
 ```bash
-cd tools && python3 -m unittest swiftpeek.test_api -v
+PYTHONPATH=tools python3 -m swiftpeek icons SpringBoard_<ts>.json
+PYTHONPATH=tools python3 -m swiftpeek tint-plan SpringBoard_<ts>.json --mode 4 -o plan.json
+```
+
+```bash
+cd tools && python3 -m unittest swiftpeek.test_api swiftpeek.test_scaffold swiftpeek.test_icons -v
 ```
 
