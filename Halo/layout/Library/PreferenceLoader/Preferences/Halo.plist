@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>entry</key>
+	<dict>
+		<key>cell</key>
+		<string>PSLinkCell</string>
+		<key>icon</key>
+		<string></string>
+		<key>label</key>
+		<string>Halo</string>
+	</dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>A glass capsule that hugs the notch and expands below it. The notch is a physical cutout — those pixels do not exist and no tweak can light them up — so Halo recreates the presentation around it rather than pretending the cutout itself changes shape. On devices that already have a real Dynamic Island, Halo stays inert.</string>
+			<key>label</key>
+			<string>Halo</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.halo/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.halo</string>
+			<key>key</key>
+			<string>enabled</string>
+			<key>label</key>
+			<string>Enable Halo</string>
+		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Each source is purely reactive — a system notification arrives, the capsule animates once, and nothing runs until the next event. Now Playing needs MediaRemote, which Halo resolves at runtime; if it is missing on your firmware the source simply never arms.</string>
+			<key>label</key>
+			<string>Sources</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.halo/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.halo</string>
+			<key>key</key>
+			<string>sourceMedia</string>
+			<key>label</key>
+			<string>Now Playing</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.halo/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.halo</string>
+			<key>key</key>
+			<string>mediaShowWhenPaused</string>
+			<key>label</key>
+			<string>Keep Showing When Paused</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.halo/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.halo</string>
+			<key>key</key>
+			<string>sourceCharging</string>
+			<key>label</key>
+			<string>Charging</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.halo/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.halo</string>
+			<key>key</key>
+			<string>sourceRinger</string>
+			<key>label</key>
+			<string>Ringer Switch</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.halo/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.halo</string>
+			<key>key</key>
+			<string>sourceLowPower</string>
+			<key>label</key>
+			<string>Low Power Mode</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.halo/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.halo</string>
+			<key>key</key>
+			<string>sourceScreenCapture</string>
+			<key>label</key>
+			<string>Screen Recording</string>
+		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Interaction</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.halo/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.halo</string>
+			<key>key</key>
+			<string>tapToExpand</string>
+			<key>label</key>
+			<string>Tap to Expand</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.halo/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.halo</string>
+			<key>key</key>
+			<string>tapToOpen</string>
+			<key>label</key>
+			<string>Tap Expanded to Open App</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.halo/prefschanged</string>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<real>3.0</real>
+			<key>defaults</key>
+			<string>com.kolby.halo</string>
+			<key>key</key>
+			<string>chargingDuration</string>
+			<key>label</key>
+			<string>Charging Duration</string>
+			<key>min</key>
+			<real>1.0</real>
+			<key>max</key>
+			<real>10.0</real>
+			<key>showValue</key>
+			<true/>
+		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Diagnostics</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.halo/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.halo</string>
+			<key>key</key>
+			<string>logEvents</string>
+			<key>label</key>
+			<string>Log Events (os_log / NSLog)</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Emergency kill switch: create the file com.kolby.halo.killswitch in /var/mobile/Library/Preferences (via SSH or Filza) and respring to fully disable Halo without uninstalling.</string>
+			<key>label</key>
+			<string>Safety</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Halo • by ma6x9x — event-driven, installs no hooks</string>
+		</dict>
+	</array>
+	<key>title</key>
+	<string>Halo</string>
+</dict>
+</plist>

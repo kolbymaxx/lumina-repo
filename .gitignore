@@ -19,6 +19,8 @@ SwiftPeek/.theos/
 SwiftPeek/packages/
 OmniAI/.theos/
 OmniAI/packages/
+Halo/.theos/
+Halo/packages/
 
 # Host-side tool binary (rebuild with: cc -O2 -o tools/swiftmd tools/swiftmd.c)
 tools/swiftmd

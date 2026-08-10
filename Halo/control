@@ -1,0 +1,9 @@
+Package: com.kolby.halo
+Name: Halo
+Depends: mobilesubstrate, preferenceloader, firmware (>= 15.0)
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Description: A Dynamic Island for notch devices. A glass capsule hugs the notch and expands below it for now playing, charging, ringer, Low Power Mode and screen recording. Event-driven, installs no hooks, default off. Stays inert on devices that already have a real Dynamic Island.
+Maintainer: ma6x9x
+Author: ma6x9x
+Section: Tweaks
