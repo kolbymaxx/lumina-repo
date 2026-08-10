@@ -578,6 +578,34 @@ static const CGFloat kM27CircleButton = 44.0;
 
 #pragma mark - Hit testing
 
+/// Is `point` on one of the dock's own buttons? Those always win.
+- (BOOL)m27PointOnOwnControl:(CGPoint)point {
+    NSArray<UIButton *> *buttons = (self.mode == M27DockModeCollapsed)
+        ? @[ self.redButton ?: (UIButton *)NSNull.null,
+             self.collapsedPlayPause ?: (UIButton *)NSNull.null,
+             self.searchButton ?: (UIButton *)NSNull.null ]
+        : @[ self.expandedPlayPause ?: (UIButton *)NSNull.null,
+             self.expandedNext ?: (UIButton *)NSNull.null ];
+
+    for (UIButton *button in buttons) {
+        if (![button isKindOfClass:UIButton.class]) continue;
+        if (button.hidden || !button.isEnabled) continue;
+        CGPoint p = [self convertPoint:point toView:button];
+        // Generous: these are small circles and a near miss should still be a
+        // press rather than falling through to Music.
+        if (CGRectContainsPoint(CGRectInset(button.bounds, -6.0, -6.0), p)) return YES;
+    }
+    return NO;
+}
+
+/// The pill body opens the full player, and only Music can do that.
+- (BOOL)m27ShouldPassThrough:(CGPoint)point {
+    if (![self.delegate respondsToSelector:@selector(floatingDock:shouldPassThroughPoint:)]) {
+        return NO;
+    }
+    return [self.delegate floatingDock:self shouldPassThroughPoint:point];
+}
+
 - (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
     // Full-width host frame is taller/wider than the glass pills. Only the
     // visible chrome should capture touches so Library content under the
@@ -585,7 +613,11 @@ static const CGFloat kM27CircleButton = 44.0;
     if (self.mode == M27DockModeCollapsed) {
         if (self.collapsedHost.userInteractionEnabled && self.collapsedHost.alpha > 0.01) {
             CGPoint p = [self convertPoint:point toView:self.collapsedHost];
-            if ([self.collapsedHost pointInside:p withEvent:event]) return YES;
+            if ([self.collapsedHost pointInside:p withEvent:event]) {
+                if ([self m27PointOnOwnControl:point]) return YES;
+                // Artwork and titles: hand the touch to Music's mini player.
+                return ![self m27ShouldPassThrough:point];
+            }
         }
         return NO;
     }
@@ -594,8 +626,13 @@ static const CGFloat kM27CircleButton = 44.0;
         UIView *tabsHost = [self.expandedHost viewWithTag:0x4D325448];
         if (miniHost && !miniHost.hidden) {
             CGPoint p = [self convertPoint:point toView:miniHost];
-            if ([miniHost pointInside:p withEvent:event]) return YES;
+            if ([miniHost pointInside:p withEvent:event]) {
+                if ([self m27PointOnOwnControl:point]) return YES;
+                return ![self m27ShouldPassThrough:point];
+            }
         }
+        // The tab row is entirely ours — never pass those through, or a tap
+        // would reach Music's real tab bar underneath and switch tabs twice.
         if (tabsHost) {
             CGPoint p = [self convertPoint:point toView:tabsHost];
             if ([tabsHost pointInside:p withEvent:event]) return YES;

@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.40
+Version: 1.1.41
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.40: the stock Play/Shuffle row is hidden during layout instead of after the page appears, so it should stop flashing. Also narrows down why the mini-pill tap cannot open the full player yet.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.41: tapping the mini pill opens the full player. Rather than trying to press a button that does not exist, the pill declines the touch so it reaches Music’s own mini player underneath, which opens the player natively with its lyrics screen.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks

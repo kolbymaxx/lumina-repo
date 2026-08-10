@@ -587,6 +587,49 @@ static NSString *M27PresentationSelectors(NSObject *obj) {
     mini.userInteractionEnabled = wasInteractive;
 }
 
+/// Decline the touch when Music's own mini player is underneath it.
+///
+/// This is the fix for four builds of trying to open the full player by
+/// synthesising an action. There is no button to press — the mini player owns
+/// playPauseButton, skipButton, reverseButton, shuffleButton, repeatButton and
+/// handoffButton, and none of them expands it — and firing "some control" only
+/// ever picked a different wrong one.
+///
+/// But Music's real mini player has been sitting under the glass pill the whole
+/// time. The dock hides it with `layer.opacity = 0`, which makes it invisible
+/// while leaving it perfectly hit-testable, so a touch that reaches it opens the
+/// player natively, with Music's own animation and the lyrics screen. That is
+/// almost certainly what happened when the player "popped up by accident" —
+/// a tap landed just outside the pill and hit the real thing.
+///
+/// So the geometry is checked rather than assumed: pass the touch through only
+/// where the stock mini player actually is. Anywhere else the dock keeps it, so
+/// a stray tap can never fall through to whatever else is down there.
+- (BOOL)floatingDock:(M27FloatingDock *)dock shouldPassThroughPoint:(CGPoint)point {
+    UIViewController *miniVC = M27FindMiniPlayerViewController(self.tabBarController);
+    UIView *mini = miniVC.view;
+    if (!mini || mini.hidden || !mini.window) return NO;
+
+    CGRect miniInWindow = [mini convertRect:mini.bounds toView:nil];
+    if (CGRectIsEmpty(miniInWindow)) return NO;
+
+    CGPoint pointInWindow = [dock convertPoint:point toView:nil];
+    BOOL inside = CGRectContainsPoint(miniInWindow, pointInWindow);
+
+    static BOOL loggedOnce = NO;
+    if (!loggedOnce) {
+        loggedOnce = YES;
+        M27WriteStatus(@"passthrough_geometry", @{
+            @"mini_window": NSStringFromCGRect(miniInWindow),
+            @"tap_window": NSStringFromCGPoint(pointInWindow),
+            @"inside": inside ? @"yes" : @"no",
+            @"mini_alpha": @((double)mini.alpha),
+            @"mini_opacity": @((double)mini.layer.opacity),
+        });
+    }
+    return inside;
+}
+
 - (void)floatingDockDidChangeMode:(M27FloatingDock *)dock {
     M27LayoutDock(self.tabBarController, dock);
 }
