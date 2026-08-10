@@ -376,12 +376,16 @@ static NSArray<UIGestureRecognizer *> *M27TapGesturesNear(UIView *view, NSIntege
 /// This may still no-op: a handler that checks `gr.state == .ended` will bail,
 /// because the recogniser is sitting in .possible and state is read-only. That
 /// is exactly why the outcome is logged rather than assumed.
-static NSInteger M27FireGestureTargets(UIGestureRecognizer *gr) {
+static NSInteger M27FireGestureTargets(UIGestureRecognizer *gr, NSMutableString *why) {
     if (!gr) return 0;
     NSInteger fired = 0;
     @try {
         id targets = [gr valueForKey:@"_targets"];
-        if (![targets isKindOfClass:NSArray.class]) return 0;
+        if (![targets isKindOfClass:NSArray.class]) {
+            [why appendFormat:@"targets_%s ", targets ? object_getClassName(targets) : "nil"];
+            return 0;
+        }
+        [why appendFormat:@"n=%lu ", (unsigned long)[(NSArray *)targets count]];
         for (id entry in (NSArray *)targets) {
             id target = nil;
             SEL action = NULL;
@@ -395,7 +399,13 @@ static NSInteger M27FireGestureTargets(UIGestureRecognizer *gr) {
                 ptrdiff_t off = ivar_getOffset(aIvar);
                 action = *(SEL *)((uintptr_t)(__bridge void *)entry + (uintptr_t)off);
             }
-            if (!target || !action || ![target respondsToSelector:action]) continue;
+            if (!target) { [why appendString:@"no_target "]; continue; }
+            if (!action) { [why appendString:@"no_action "]; continue; }
+            if (![target respondsToSelector:action]) {
+                [why appendFormat:@"unresp_%@ ", NSStringFromSelector(action)];
+                continue;
+            }
+            [why appendFormat:@"%s.%@ ", object_getClassName(target), NSStringFromSelector(action)];
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
@@ -403,7 +413,9 @@ static NSInteger M27FireGestureTargets(UIGestureRecognizer *gr) {
 #pragma clang diagnostic pop
             fired++;
         }
-    } @catch (__unused NSException *ex) {}
+    } @catch (NSException *ex) {
+        [why appendFormat:@"exc_%@ ", ex.name ?: @"?"];
+    }
     return fired;
 }
 
@@ -472,9 +484,10 @@ static NSString *M27PresentationSelectors(NSObject *obj) {
     // gesture, which is why accessibilityActivate refused and why the control
     // search could only ever find the wrong thing.
     NSArray<UIGestureRecognizer *> *taps = M27TapGesturesNear(mini, 3);
+    NSMutableString *why = [NSMutableString string];
     NSInteger firedTargets = 0;
     for (UIGestureRecognizer *gr in taps) {
-        firedTargets += M27FireGestureTargets(gr);
+        firedTargets += M27FireGestureTargets(gr, why);
         if (firedTargets > 0) break;
     }
 
@@ -482,9 +495,30 @@ static NSString *M27PresentationSelectors(NSObject *obj) {
         M27WriteStatus(@"nowplaying_gesture_fired", @{
             @"targets": @((long)firedTargets),
             @"gestures": @((long)taps.count),
+            @"detail": why.length ? why : @"-",
         });
         mini.userInteractionEnabled = wasInteractive;
         return;
+    }
+
+    // The recogniser's own view is a better activation candidate than the mini
+    // player root: 1.1.39 logged `target=nil` from hitTest, so the root was
+    // never a live target to begin with.
+    for (UIGestureRecognizer *gr in taps) {
+        if (!gr.view || gr.view == mini) continue;
+        BOOL wasOn = gr.view.userInteractionEnabled;
+        gr.view.userInteractionEnabled = YES;
+        BOOL ok = NO;
+        @try { ok = [gr.view accessibilityActivate]; } @catch (__unused NSException *ex) {}
+        gr.view.userInteractionEnabled = wasOn;
+        if (ok) {
+            M27WriteStatus(@"nowplaying_activated", @{
+                @"via": @"gesture_view",
+                @"target": @(object_getClassName(gr.view)),
+            });
+            mini.userInteractionEnabled = wasInteractive;
+            return;
+        }
     }
 
     UIView *target = nil;
@@ -541,6 +575,13 @@ static NSString *M27PresentationSelectors(NSObject *obj) {
         @"parent_sels": M27PresentationSelectors(miniVC.parentViewController),
         @"tbc_sels": M27PresentationSelectors(self.tabBarController),
         @"mini_super": mini.superview ? @(object_getClassName(mini.superview)) : @"nil",
+        // 1.1.39's target=nil needs explaining: a zero bounds, a hidden view or
+        // a cleared alpha all make hitTest refuse, and they are not the same bug.
+        @"mini_bounds": NSStringFromCGRect(mini.bounds),
+        @"mini_alpha": @((double)mini.alpha),
+        @"mini_opacity": @((double)mini.layer.opacity),
+        @"mini_hidden": mini.hidden ? @"yes" : @"no",
+        @"fire_detail": why.length ? why : @"-",
     });
 
     mini.userInteractionEnabled = wasInteractive;

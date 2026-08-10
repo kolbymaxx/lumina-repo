@@ -84,6 +84,51 @@ static NSArray<NSString *> *M27NowPlayingIvarNames(void) {
 /// so treat it as a hypothesis. A missing name in this log means the ivar was
 /// renamed or is a struct, and the next build targets something else instead of
 /// re-deriving the same wrong guess.
+/// Every view-typed ivar this controller actually has, with its frame.
+///
+/// The catalog was a hypothesis and 1.1.39 falsified it in one line: the class
+/// on this device is `MusicNowPlayingControlsViewController` — plain ObjC, no
+/// Swift module prefix — and all 21 catalog names came back missing. That
+/// catalog was built from a different Music build.
+///
+/// So stop guessing names and read the ones that are here. Only object-typed
+/// ivars are touched, and only their class and frame are recorded, so this is a
+/// targeted read rather than the kind of field walk that SIGSEGV'd SwiftPeek.
+static void M27ReportRealIvars(UIViewController *vc) {
+    NSMutableArray<NSString *> *found = [NSMutableArray array];
+    Class cls = object_getClass(vc);
+
+    for (NSInteger depth = 0; cls && depth < 3; depth++, cls = class_getSuperclass(cls)) {
+        unsigned int count = 0;
+        Ivar *ivars = class_copyIvarList(cls, &count);
+        if (!ivars) continue;
+
+        for (unsigned int i = 0; i < count && found.count < 40; i++) {
+            const char *enc = ivar_getTypeEncoding(ivars[i]);
+            if (!enc || enc[0] != '@') continue;
+
+            id value = nil;
+            @try {
+                value = object_getIvar(vc, ivars[i]);
+            } @catch (__unused NSException *ex) { continue; }
+            if (![value isKindOfClass:UIView.class]) continue;
+
+            UIView *view = (UIView *)value;
+            [found addObject:[NSString stringWithFormat:@"%s:%@%@",
+                              ivar_getName(ivars[i]),
+                              NSStringFromClass(view.class),
+                              NSStringFromCGRect(view.frame)]];
+        }
+        free(ivars);
+    }
+
+    M27WriteStatus(@"nowplaying_ivars", @{
+        @"vc": NSStringFromClass(vc.class),
+        @"count": @((long)found.count),
+        @"views": found.count ? [found componentsJoinedByString:@" "] : @"none",
+    });
+}
+
 static void M27ReportNowPlayingControls(UIViewController *vc) {
     NSMutableDictionary *info = [NSMutableDictionary dictionary];
     NSMutableArray<NSString *> *missing = [NSMutableArray array];
@@ -143,6 +188,7 @@ static void M27StyleNowPlayingControls(UIViewController *vc) {
     // Report on every presentation regardless of the style pref — the point is
     // to learn this screen's real shape, and that costs one log line.
     M27ReportNowPlayingControls(self);
+    M27ReportRealIvars(self);
     M27StyleNowPlayingControls(self);
 }
 

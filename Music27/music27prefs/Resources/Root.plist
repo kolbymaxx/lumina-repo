@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.39: tapping the mini pill no longer plays or pauses. Two builds fired two different wrong buttons — shuffle, then play/pause — because the mini player has no button that opens the full player at all. It now does nothing rather than acting on something you did not ask for, and records what the mini player is really made of so the next build can open it properly. The album download button mirrors Music’s own control by rendering it, so the stop ring during a download shows through.</string>
+			<string>1.1.40: the stock Play/Shuffle buttons are hidden during layout rather than after the page is already on screen, which is what was letting them flash. The mini-pill tap still does not open the full player — a real tap gesture is there but firing it did nothing, so this build records why. The full-screen player restyle now reads this device’s actual view names, since the ones it was built against turned out to belong to a different Music build.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -122,7 +122,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.39 — mini pill stops firing wrong buttons; download state mirrored. Verify on iOS 17.3 before APT.</string>
+			<string>Music27 1.1.40 — no stock-button flash; mini-pill and player diagnostics. Verify on iOS 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>

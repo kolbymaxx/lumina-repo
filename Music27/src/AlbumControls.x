@@ -568,10 +568,20 @@ static void M27InstallAlbumControls(UIViewController *vc) {
     %orig;
     M27Prefs *prefs = M27Prefs.shared;
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) return;
-    // Only refresh an already-installed row during layout — never first-install here.
-    if ([self.view viewWithTag:kM27AlbumControlsTag]) {
-        M27InstallAlbumControls(self);
-    }
+    if (!M27IsAlbumDetailController(self)) return;
+
+    // FIRST INSTALL BELONGS HERE, and this is why the stock buttons still flash.
+    //
+    // 1.1.38 moved the install to viewWillAppear to beat the flash, and
+    // status.log answered with `album_lookup_failed play=nil shuffle=nil`: at
+    // viewWillAppear those buttons do not exist yet, so there was nothing to
+    // hide and the first real install still happened on viewDidAppear — after
+    // the page is on screen.
+    //
+    // Layout is the first moment the stock row exists, and it runs before the
+    // frame is presented. The old guard here refused to install unless a row was
+    // already present, which guaranteed the late path won every time.
+    M27InstallAlbumControls(self);
 }
 
 %end
