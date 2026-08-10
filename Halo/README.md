@@ -115,6 +115,21 @@ make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless   # iPhone X / Dopamin
 make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide   # 12 mini / Relaxin'
 ```
 
+## Overlaps with SPKit (PR #59)
+
+PR #59 extracts a shared runtime, `SPKit`, with two pieces Halo duplicates:
+
+- **`SPKOverlayWindow`** — a passthrough, never-key overlay window carrying the
+  rules eight Music27 builds paid for. `HAWindow` is a smaller version of the
+  same thing and should be replaced by it once #59 lands.
+- **`SPKRuntime`** — canonical jbroot / prefs / kill-switch helpers. `HAPrefs.m`
+  is another near-copy; SPKRuntime's own header counts six that existed before
+  extraction, and Halo and Lattice have since added two more.
+
+Neither is adopted here, because SPKit is not on `main` yet and depending on an
+unmerged branch is worse than the duplication. The one lesson taken early is
+`-canBecomeKeyWindow` returning NO.
+
 ## Not implemented (deliberately)
 
 Live Activities, call state and timers are **not** wired up. Each would need a

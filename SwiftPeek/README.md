@@ -12,6 +12,10 @@ tools: annotate / query / **ranked targets** / **Theos scaffold** —
 [`docs/READ_API.md`](docs/READ_API.md), [`docs/TWEAK_WORKFLOW.md`](docs/TWEAK_WORKFLOW.md),
 `PYTHONPATH=tools python3 -m swiftpeek …`. Not published to APT.
 
+> **Concurrent branches:** PRs #47, #59 and #60 all change SwiftPeek, and #59
+> and #60 disagree about whether SwiftPeek may enter SpringBoard at all. See
+> [`docs/MERGE_NOTES.md`](docs/MERGE_NOTES.md) before merging any of them.
+
 ## Targets
 
 | Process | Why |

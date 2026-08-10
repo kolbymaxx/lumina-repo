@@ -18,6 +18,16 @@
 
 @implementation HAWindow
 
+// First responder, keyboard and status-bar style all follow the key window, so
+// an overlay that becomes key is one of the ways the app underneath ends up
+// blank. Halo never calls -makeKeyAndVisible, but refusing key status outright
+// means nothing else can hand it over either. (Lesson banked by Music27's
+// overlay work — see SPKOverlayWindow in PR #59, which Halo should adopt
+// wholesale once that lands.)
+- (BOOL)canBecomeKeyWindow {
+    return NO;
+}
+
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     HACapsuleView *capsule = self.capsule;
     if (!capsule || capsule.hidden || capsule.alpha < 0.01) return nil;
