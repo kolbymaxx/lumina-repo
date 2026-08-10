@@ -1,4 +1,5 @@
 #import "CC27.h"
+#import "SPDumpWriter.h"
 #import <objc/runtime.h>
 #import <string.h>
 
@@ -16,7 +17,21 @@ static void CC27ReloadPrefs(CFNotificationCenterRef center, void *observer, CFSt
 // (CCUIModularControlCenterView / SBControlCenterWindow), so any such ancestor
 // is a definitive yes. The lock screen blacklist stays as a safety net for the
 // quick-action containers, which never have a ControlCenter ancestor.
+//
+// The per-level order matters and must not be "simplified": CC presented over
+// the lock screen legitimately has CoverSheet ancestors *above* its
+// ControlCenter chrome, so the whitelist has to win as soon as it matches while
+// walking up. Checking the blacklist across the whole chain first would strip
+// glass from lock screen CC — the exact regression 1.0.8 had to undo.
 static BOOL CC27ViewIsInControlCenter(UIView *view) {
+    if (!view) return NO;
+    // Not in a window yet → the superview chain is still being assembled, so
+    // neither list can be trusted. This is how a Lock Screen quick-action
+    // container reached the old fail-open default and got styled (the
+    // 1.0.5/1.0.6 freezes). The view gets another layoutSubviews once it is
+    // hosted; decide then instead of guessing now.
+    if (!view.window) return NO;
+
     UIView *v = view;
     while (v) {
         const char *cls = class_getName(v.class);
@@ -32,7 +47,172 @@ static BOOL CC27ViewIsInControlCenter(UIView *view) {
         }
         v = v.superview;
     }
-    return YES;
+    // Fail CLOSED. Only a positive ControlCenter ancestor proves this container
+    // is real CC chrome; anything inconclusive is left stock.
+    return NO;
+}
+
+#pragma mark - Recon dump (opt-in, default off)
+
+// Read-only snapshot of the live Control Center view tree, written in SwiftPeek's
+// dump format so the host tools under tools/ read it with no schema change
+// (`process` in the header is "SpringBoard", so dumps self-identify).
+//
+// Why this exists: CC27 hardcodes ~14 private class names and KVC keys that were
+// never checked against a real device. Music27 spent six releases proving what
+// guessing at private hierarchy costs; in SpringBoard the price is a boot hang or
+// a wedged lock screen, so the guesses get verified from data instead.
+//
+// Hard rules, matching the rest of this file's hardening:
+//   - class names and hierarchy shape only. No FOVO walking, never force vc.view.
+//     SwiftPeek's SPFieldWalk.m is deliberately NOT linked, for exactly that reason.
+//   - never while locked, never on the boot path.
+//   - UIKit is read on the main thread; only serialization + file I/O go off-thread.
+static const NSUInteger kCC27ReconMaxNodes = 400;
+static const NSUInteger kCC27ReconMaxDepth = 12;
+static const NSUInteger kCC27ReconMaxDumps = 10; // per SpringBoard session
+static NSUInteger gCC27ReconDumpCount = 0;
+
+/// Reports whether a guessed KVC key actually resolves, and to what.
+/// "MISSING" / "nil" / "THREW:" in a dump means the corresponding hardcoded
+/// string elsewhere in CC27 is wrong and needs correcting.
+static NSString *CC27ReconProbeKey(id target, NSString *key) {
+    if (!target) return @"no-instance";
+    @try {
+        id value = [target valueForKey:key];
+        if (!value) return @"nil";
+        if ([value isKindOfClass:NSDictionary.class]) {
+            return [NSString stringWithFormat:@"NSDictionary(%lu)",
+                    (unsigned long)((NSDictionary *)value).count];
+        }
+        if ([value isKindOfClass:NSArray.class]) {
+            return [NSString stringWithFormat:@"NSArray(%lu)",
+                    (unsigned long)((NSArray *)value).count];
+        }
+        if ([value isKindOfClass:NSString.class]) {
+            return [NSString stringWithFormat:@"NSString:%@", value];
+        }
+        return NSStringFromClass([value class]) ?: @"?";
+    } @catch (NSException *e) {
+        return [NSString stringWithFormat:@"THREW:%@", e.name ?: @"?"];
+    }
+}
+
+/// Confirms every class CC27 resolves by name, and every KVC key it reads,
+/// using the same access paths the real code uses.
+static NSDictionary *CC27ReconProbeFields(void) {
+    NSMutableDictionary *out = [NSMutableDictionary dictionary];
+
+    for (NSString *name in @[ @"CCUIModularControlCenterOverlayViewController",
+                              @"CCUIContentModuleContentContainerView",
+                              @"CCUIContentModuleContainerViewController",
+                              @"CCUIModuleInstanceManager",
+                              @"CCUIModuleCollectionViewController",
+                              @"CCUIModularControlCenterViewController",
+                              @"CCSModuleRepository",
+                              @"CCSModuleSettingsProvider",
+                              @"MTMaterialView",
+                              @"SBLockScreenManager" ]) {
+        out[[@"class:" stringByAppendingString:name]] =
+            NSClassFromString(name) ? @"present" : @"MISSING";
+    }
+
+    // Same acquisition path as CC27LayoutStore / CC27ModuleCatalog.
+    Class mgrCls = NSClassFromString(@"CCUIModuleInstanceManager");
+    id mgr = [mgrCls respondsToSelector:@selector(sharedInstance)] ? [mgrCls sharedInstance] : nil;
+    out[@"CCUIModuleInstanceManager.sharedInstance"] = mgr ? @"present" : @"MISSING";
+    out[@"CCUIModuleInstanceManager._moduleInstanceByIdentifier"] =
+        CC27ReconProbeKey(mgr, @"_moduleInstanceByIdentifier");
+    out[@"CCUIModuleInstanceManager._repository"] = CC27ReconProbeKey(mgr, @"_repository");
+
+    return out;
+}
+
+/// One node per view: ObjC class, depth, geometry. `objc_class` is the field the
+/// host tools fall back to when there is no Swift `type` (CC's UI is all ObjC).
+static void CC27ReconCollectView(UIView *view, NSUInteger depth, NSMutableArray *out) {
+    if (!view || depth > kCC27ReconMaxDepth || out.count >= kCC27ReconMaxNodes) return;
+
+    CGRect f = view.frame;
+    NSMutableDictionary *node = [@{
+        @"objc_class": NSStringFromClass(view.class) ?: @"?",
+        @"role": @"view",
+        @"depth": @(depth),
+        @"address": [NSString stringWithFormat:@"%p", view],
+        @"frame": [NSString stringWithFormat:@"%.0f,%.0f,%.0fx%.0f",
+                   f.origin.x, f.origin.y, f.size.width, f.size.height],
+        @"hidden": @(view.isHidden),
+    } mutableCopy];
+
+    // For module containers, exercise the exact ancestor + KVC path the styling
+    // hook uses, so a dump proves whether that lookup still works.
+    if ([view isKindOfClass:NSClassFromString(@"CCUIContentModuleContentContainerView")]) {
+        node[@"in_control_center"] = @(CC27ViewIsInControlCenter(view));
+        UIViewController *owner = nil;
+        @try {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            SEL sel = NSSelectorFromString(@"_viewControllerForAncestor");
+            for (UIView *v = view; v; v = v.superview) {
+                id vc = [v respondsToSelector:sel] ? [v performSelector:sel] : nil;
+                if ([vc isKindOfClass:NSClassFromString(@"CCUIContentModuleContainerViewController")]) {
+                    owner = vc;
+                    break;
+                }
+            }
+#pragma clang diagnostic pop
+        } @catch (__unused NSException *e) {}
+        node[@"module_identifier"] = CC27ReconProbeKey(owner, @"moduleIdentifier");
+        node[@"module_view_delegate"] = CC27ReconProbeKey(owner, @"_viewDelegate");
+    }
+
+    [out addObject:node];
+    for (UIView *sub in view.subviews) {
+        CC27ReconCollectView(sub, depth + 1, out);
+    }
+}
+
+/// Main thread only. Snapshots into plain collections, then hands the write off.
+static void CC27WriteReconDump(UIViewController *host) {
+    if (!CC27Prefs.shared.reconDump) return;
+    if (gCC27ReconDumpCount >= kCC27ReconMaxDumps) return;
+    if ([CC27EditSession deviceUILocked]) return;
+    if (!host.isViewLoaded || !host.view.window) return;
+
+    @try {
+        NSMutableArray *collected = [NSMutableArray array];
+        CC27ReconCollectView(host.view, 0, collected);
+
+        // Freeze before handing off: the background queue must never see a
+        // collection the main thread could still be holding a mutable ref to.
+        NSArray *nodes = [collected copy];
+        NSUInteger nodeCount = nodes.count;
+
+        NSDictionary *payload = @{
+            @"milestone": @"cc27-recon",
+            @"probe": @{
+                @"host_class": NSStringFromClass(host.class) ?: @"?",
+                @"dump_index": @(gCC27ReconDumpCount),
+                @"truncated": @(nodeCount >= kCC27ReconMaxNodes),
+            },
+            @"fields": CC27ReconProbeFields(),
+            @"nodes": nodes,
+        };
+        gCC27ReconDumpCount++; // main thread only (viewDidAppear) — no barrier needed
+
+        // UIKit reads are done; serialization and file I/O must not sit on the main thread.
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            @try {
+                NSString *path = SPWriteJSONDump(payload);
+                NSLog(@"[CC27] recon dump %@ (%lu nodes)",
+                      path ?: @"FAILED", (unsigned long)nodeCount);
+            } @catch (NSException *e) {
+                NSLog(@"[CC27] recon dump write threw (suppressed): %@", e);
+            }
+        });
+    } @catch (NSException *e) {
+        NSLog(@"[CC27] recon dump threw (suppressed): %@", e);
+    }
 }
 
 %group CC27
@@ -52,6 +232,9 @@ static BOOL CC27ViewIsInControlCenter(UIView *view) {
     if (!CC27Prefs.shared.enabled) return;
     if ([CC27EditSession deviceUILocked]) return;
     [CC27EditSession.shared setHostVisible:YES host:self];
+    // Fully presented and laid out — the only point where a snapshot is both
+    // meaningful and far away from the boot path. No-op unless reconDump is on.
+    CC27WriteReconDump(self);
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -89,6 +272,20 @@ static BOOL CC27ViewIsInControlCenter(UIView *view) {
 %end
 
 %hook CCUIContentModuleContentContainerView
+
+// The layoutSubviews guard below refuses to classify a container that is not in a
+// window yet, because its superview chain is still incomplete. That is the right
+// call for safety, but it would leave a module unstyled if it never got another
+// layout pass afterwards. Once the container is actually hosted it can be
+// classified, so ask for one more pass — real CC modules keep their glass, and
+// Lock Screen quick actions still fail the check and are left alone.
+- (void)didMoveToWindow {
+    %orig;
+    if (!CC27Prefs.shared.enabled) return;
+    if (self.window && CC27ViewIsInControlCenter(self)) {
+        [self setNeedsLayout];
+    }
+}
 
 - (void)layoutSubviews {
     %orig;
@@ -142,7 +339,7 @@ static void CC27InstallHooks(void) {
             return;
         }
         %init(CC27);
-        NSLog(@"[CC27] 1.0.8 hooks installed (post-launch)");
+        NSLog(@"[CC27] 1.0.9 hooks installed (post-launch)");
     });
 }
 
@@ -150,10 +347,24 @@ static void CC27InstallHooks(void) {
     @autoreleasepool {
         // Emergency kill switch: create this file (e.g. via SSH/Filza) and
         // respring to fully disable CC27 without uninstalling:
-        //   touch /var/mobile/Library/Preferences/com.kolby.cc27.killswitch
-        if ([[NSFileManager defaultManager] fileExistsAtPath:@"/var/mobile/Library/Preferences/com.kolby.cc27.killswitch"]) {
-            NSLog(@"[CC27] kill switch present — not loading");
-            return;
+        //   touch <jbroot>/var/mobile/Library/Preferences/com.kolby.cc27.killswitch
+        //
+        // Resolved through the jbroot prefix, same as the prefs lookup. The old
+        // hardcoded /var/mobile path was unreachable on roothide, so the one
+        // escape hatch from a boot hang silently did nothing there.
+        NSString *killRel = @"/var/mobile/Library/Preferences/com.kolby.cc27.killswitch";
+        NSMutableArray<NSString *> *killPaths = [NSMutableArray array];
+        NSString *jbPrefix = CC27JailbreakRootPrefix();
+        if (jbPrefix.length > 0) {
+            [killPaths addObject:[jbPrefix stringByAppendingString:killRel]];
+        }
+        [killPaths addObject:[@"/var/jb" stringByAppendingString:killRel]];
+        [killPaths addObject:killRel];
+        for (NSString *killPath in killPaths) {
+            if ([[NSFileManager defaultManager] fileExistsAtPath:killPath]) {
+                NSLog(@"[CC27] kill switch present (%@) — not loading", killPath);
+                return;
+            }
         }
         [CC27Prefs.shared reload];
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
@@ -181,6 +392,6 @@ static void CC27InstallHooks(void) {
                 CC27InstallHooks();
             });
         }];
-        NSLog(@"[CC27] 1.0.8 loaded — waiting for SpringBoard launch to finish before hooking");
+        NSLog(@"[CC27] 1.0.9 loaded — waiting for SpringBoard launch to finish before hooking");
     }
 }

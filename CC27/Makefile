@@ -16,9 +16,20 @@ CC27_FILES = \
 	src/CC27LayoutStore.m \
 	src/CC27ModuleCatalog.m \
 	src/CC27EditSession.m \
-	src/CC27GalleryController.m
+	src/CC27GalleryController.m \
+	../SwiftPeek/src/SPDumpWriter.m \
+	../SwiftPeek/src/SPPrefs.m
 
-CC27_CFLAGS = -fobjc-arc -Iheaders -Isrc -Wno-unused-variable -Wno-deprecated-declarations
+# SwiftPeek recon core, linked in-process. CC27 already runs inside SpringBoard,
+# so it can produce SwiftPeek-format dumps without injecting a second dylib there
+# — the SpringBoard filter guards on SwiftPeek itself stay untouched.
+#
+# Only these two are linked, on purpose:
+#   SPFieldWalk.m  — FOVO walker, SIGSEGV'd on Music. Must never run in SpringBoard.
+#   SPSwiftMeta.m  — Swift metadata; CC's UI is ObjC CCUI*, so it buys nothing.
+# CC27 must also never call SPPrefBool: that reads SwiftPeek's own prefs domain.
+# Recon is gated on CC27Prefs.reconDump instead.
+CC27_CFLAGS = -fobjc-arc -Iheaders -Isrc -I../SwiftPeek/src -Wno-unused-variable -Wno-deprecated-declarations
 CC27_FRAMEWORKS = UIKit Foundation CoreGraphics QuartzCore CoreFoundation
 # Private CC frameworks are resolved at runtime via NSClassFromString / Logos %hook.
 

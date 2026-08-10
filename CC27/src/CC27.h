@@ -6,6 +6,10 @@ FOUNDATION_EXPORT NSString * const CC27PrefDomain;
 FOUNDATION_EXPORT NSString * const CC27ReloadPrefsNotification;
 FOUNDATION_EXPORT NSString * const CC27LayoutDidChangeNotification;
 
+/// Jailbreak root prefix ("" / "/var/jb" / roothide jbroot). Same resolution the
+/// prefs use, exported so the %ctor kill-switch check can reach the real path.
+FOUNDATION_EXPORT NSString *CC27JailbreakRootPrefix(void);
+
 @interface CC27Prefs : NSObject
 + (instancetype)shared;
 - (void)reload;
@@ -15,6 +19,8 @@ FOUNDATION_EXPORT NSString * const CC27LayoutDidChangeNotification;
 @property (nonatomic, readonly) BOOL allowResize;
 @property (nonatomic, readonly) BOOL showTopButtons;
 @property (nonatomic, readonly) BOOL hapticFeedback;
+/// Debug: write a read-only dump of the live Control Center view tree. Default off.
+@property (nonatomic, readonly) BOOL reconDump;
 @end
 
 @interface CC27Glass : NSObject

@@ -5,6 +5,10 @@ on:
   push:
     paths:
       - 'CC27/**'
+      # Linked into CC27 from SwiftPeek (see CC27/Makefile) — without these a
+      # change to the recon core would ship untested in the CC27 deb.
+      - 'SwiftPeek/src/SPDumpWriter.*'
+      - 'SwiftPeek/src/SPPrefs.*'
       - '.github/workflows/build-cc27.yml'
 
 jobs:

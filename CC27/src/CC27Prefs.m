@@ -4,7 +4,10 @@ NSString * const CC27PrefDomain = @"com.kolby.cc27";
 NSString * const CC27ReloadPrefsNotification = @"com.kolby.cc27/ReloadPrefs";
 NSString * const CC27LayoutDidChangeNotification = @"com.kolby.cc27/LayoutDidChange";
 
-static NSString *CC27JailbreakRootPrefix(void) {
+// Exported (declared in CC27.h) so the %ctor kill-switch check resolves the same
+// jbroot prefix as prefs do. Deliberately CC27's own copy: the emergency switch
+// must keep working even if the linked SwiftPeek recon sources are ever dropped.
+NSString *CC27JailbreakRootPrefix(void) {
     static NSString *prefix;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -65,6 +68,7 @@ static NSDictionary *CC27ReadPrefsDictionary(void) {
     BOOL _allowResize;
     BOOL _showTopButtons;
     BOOL _hapticFeedback;
+    BOOL _reconDump;
 }
 
 + (instancetype)shared {
@@ -103,6 +107,9 @@ static BOOL CC27ResolveBool(NSDictionary *plist, NSString *key, BOOL fallback) {
     _allowResize     = CC27ResolveBool(plist, @"allowResize", NO);
     _showTopButtons  = CC27ResolveBool(plist, @"showTopButtons", YES);
     _hapticFeedback  = CC27ResolveBool(plist, @"hapticFeedback", YES);
+    // Debug recon only. Default OFF and never seeded on — a dump walks the live
+    // CC view tree, which is not something to do on a user's device by default.
+    _reconDump       = CC27ResolveBool(plist, @"reconDump", NO);
 }
 
 - (BOOL)enabled { return _enabled; }
@@ -111,5 +118,6 @@ static BOOL CC27ResolveBool(NSDictionary *plist, NSString *key, BOOL fallback) {
 - (BOOL)allowResize { return _allowResize; }
 - (BOOL)showTopButtons { return _showTopButtons; }
 - (BOOL)hapticFeedback { return _hapticFeedback; }
+- (BOOL)reconDump { return _reconDump; }
 
 @end

@@ -12,6 +12,68 @@ Unlike aesthetic-only tweaks (CC26 / CCXVIII), CC27 focuses on the **real custom
 - Liquid-glass module chrome (round 1×1 / pill modules; expanded menus stay unclipped)
 - Built-in CC27 modules: **Respring**, **Safe Mode**, **UICache**, **Userspace Reboot**
 
+## 1.0.9 fixes
+
+- **Lock screen guard now fails closed.** `CC27ViewIsInControlCenter` returned
+  `YES` whenever the ancestor walk was inconclusive. During early `layoutSubviews`
+  the superview chain is still being assembled, so a Lock Screen quick-action
+  container (flashlight / camera — same class CC27 hooks) could reach that default
+  and get styled. That is the 1.0.5 / 1.0.6 freeze pattern, still reachable in
+  1.0.8. Views not yet in a window are now skipped, and only a positive
+  `ControlCenter` ancestor qualifies. **This does not undo 1.0.8:** the whitelist
+  still wins per level while walking up, so CC opened over the lock screen — which
+  legitimately has `CoverSheet` ancestors above its CC chrome — keeps its glass.
+- **Emergency kill switch works on RootHide.** The `%ctor` check hardcoded
+  `/var/mobile/…`, so on RootHide the one escape hatch from a boot hang silently
+  did nothing. It now resolves through the same jbroot prefix the prefs use
+  (rootless, RootHide, and rootful paths are all checked).
+- **Opt-in recon dump** (Settings → CC27 → Debug → Recon Dump, default **off**).
+
+## Recon dump
+
+CC27 hardcodes private `CCUI*` / `CCS*` class names and KVC keys
+(`_moduleInstanceByIdentifier`, `moduleIdentifier`, `_repository`, `_viewDelegate`)
+that were never verified against a real device. With Recon Dump on, opening
+Control Center writes a read-only snapshot in **SwiftPeek's** dump format:
+
+```
+<jbroot>/var/mobile/Library/SwiftPeek/dumps/SpringBoard_<timestamp>.json
+```
+
+Pull it with Filza. The most useful part is the `fields` object, which no host tool
+surfaces — read it straight out of the JSON:
+
+```bash
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); \
+[print(f'{v:<28} {k}') for k,v in sorted(d['fields'].items())]" SpringBoard_….json
+```
+
+Every entry reports `present` / `MISSING` / `nil` / `THREW:…`. **Anything that is not
+`present` is a hardcoded string in CC27 that needs correcting.** Each module-container
+node also carries `in_control_center` — the live answer from the guard above.
+
+For the view tree, these work on a SpringBoard dump:
+
+```bash
+PYTHONPATH=tools python3 -m swiftpeek summary SpringBoard_….json
+PYTHONPATH=tools python3 -m swiftpeek types   SpringBoard_….json
+PYTHONPATH=tools python3 -m swiftpeek targets SpringBoard_….json
+```
+
+`annotate` and `find` will **not** help here and that is expected, not a bug: both
+resolve against the offline field catalog, which was sampled from
+`MusicApplication` — `find` searches only annotated fields and screen strings, never
+class names, so it returns nothing on a CC dump. Teaching the host tools about CC
+types is a follow-up.
+
+This works **without injecting SwiftPeek into SpringBoard** — CC27 already runs
+there and links SwiftPeek's dump writer in-process (`CC27/Makefile`). SwiftPeek's
+own SpringBoard guards are untouched, and its FOVO field walker is deliberately not
+linked. Note the offline field catalog is Music-sampled, so `annotate` adds little
+here; the class names and hierarchy are the useful part.
+
+Caps: max 10 dumps per respring, 400 nodes, depth 12. Never runs while locked.
+
 ## 1.0.8 fixes
 
 - **Rounded / glassy module styling restored.** Two regressions were stripping the
