@@ -101,9 +101,17 @@ BOOL M27IsProtectedMusicHost(NSObject *_Nullable obj);
 /// Tear down / reinstall chrome from current prefs (kill switch + dock toggle).
 void M27ApplyChromeForCurrentPrefs(void);
 
+/// Hide the dock's overlay window while something full-screen is up.
+///
+/// The dock lives in its own window at `Normal + 2`, which is above Music's —
+/// so when the full-screen player is presented the pills keep floating over it.
+/// Music's own mini player and tab bar are inside the app's window and go away
+/// with the presentation; ours cannot, so it has to be told.
+void M27SetDockOverlayHidden(BOOL hidden);
+
 /// Tweak version, in one place. Bump here and in Music27/control together.
 /// Usable inside a literal: NSLog(@"[Music27 " M27_VERSION "] ...")
-#define M27_VERSION "1.1.43"
+#define M27_VERSION "1.1.44"
 #define M27VersionString @M27_VERSION
 
 /// Jailbreak root prefix ("" / "/var/jb" / RootHide jbroot).

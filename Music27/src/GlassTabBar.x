@@ -108,6 +108,12 @@ void M27WriteStatus(NSString *stage, NSDictionary *info) {
     SPKTrace(stage, info);
 }
 
+/// Set while Music's full-screen player is on screen. The dock lives in its own
+/// window, so nothing in the app's presentation takes it away — and layout runs
+/// constantly, so without this every relayout would pop the pills back over the
+/// player a frame after they were hidden.
+static BOOL gM27FullPlayerUp = NO;
+
 static const void *kM27DockControllerKey = &kM27DockControllerKey;
 static const void *kM27DockViewKey = &kM27DockViewKey;
 static const void *kM27DockWindowKey = &kM27DockWindowKey;
@@ -379,60 +385,23 @@ static NSArray<UIGestureRecognizer *> *M27TapGesturesNear(UIView *view, NSIntege
     return found;
 }
 
-/// Invoke a recogniser's registered target/action pairs directly.
-///
-/// Expanding the mini player is a gesture, not a control action — there is no
-/// button to send UIControlEventTouchUpInside to, which is why both
-/// accessibilityActivate and the control search fail. UIKit offers no public way
-/// to fire a recogniser, so read its targets.
-///
-/// This may still no-op: a handler that checks `gr.state == .ended` will bail,
-/// because the recogniser is sitting in .possible and state is read-only. That
-/// is exactly why the outcome is logged rather than assumed.
-static NSInteger M27FireGestureTargets(UIGestureRecognizer *gr, NSMutableString *why,
-                                       id __strong *outTarget) {
-    if (!gr) return 0;
-    NSInteger fired = 0;
-    @try {
-        id targets = [gr valueForKey:@"_targets"];
-        if (![targets isKindOfClass:NSArray.class]) {
-            [why appendFormat:@"targets_%s ", targets ? object_getClassName(targets) : "nil"];
-            return 0;
-        }
-        [why appendFormat:@"n=%lu ", (unsigned long)[(NSArray *)targets count]];
-        for (id entry in (NSArray *)targets) {
-            id target = nil;
-            SEL action = NULL;
-
-            Ivar tIvar = class_getInstanceVariable(object_getClass(entry), "_target");
-            if (tIvar) target = object_getIvar(entry, tIvar);
-
-            Ivar aIvar = class_getInstanceVariable(object_getClass(entry), "_action");
-            if (aIvar) {
-                // _action is a SEL, not an object — read it as raw bytes.
-                ptrdiff_t off = ivar_getOffset(aIvar);
-                action = *(SEL *)((uintptr_t)(__bridge void *)entry + (uintptr_t)off);
-            }
-            if (!target) { [why appendString:@"no_target "]; continue; }
-            if (!action) { [why appendString:@"no_action "]; continue; }
-            if (![target respondsToSelector:action]) {
-                [why appendFormat:@"unresp_%@ ", NSStringFromSelector(action)];
-                continue;
-            }
-            [why appendFormat:@"%s.%@ ", object_getClassName(target), NSStringFromSelector(action)];
-            if (outTarget && !*outTarget) *outTarget = target;
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            [target performSelector:action withObject:gr];
-#pragma clang diagnostic pop
-            fired++;
-        }
-    } @catch (NSException *ex) {
-        [why appendFormat:@"exc_%@ ", ex.name ?: @"?"];
-    }
-    return fired;
-}
+// THE GESTURE-FIRING PATH IS GONE.
+//
+// It read UIGestureRecognizer's private `_targets`, pulled `_target` and
+// `_action` out of each entry by raw ivar offset, and performSelector'd the
+// result. That is undefined behaviour the moment a firmware lays those ivars
+// out differently, and iOS 17.3 is a strong suspect for the crash reported when
+// tapping the collapsed pill's artwork: the last breadcrumb before the process
+// died was a layout line, meaning it never reached nowplaying_begin — so it
+// died during touch delivery, before the handler ran.
+//
+// It also never once worked. On 16.7 it resolved and called Music's real
+// handler (PalettePresentationInteraction.tapGestureRecognized:) and the player
+// stayed shut, because that handler checks gr.state and the recogniser sits in
+// .possible. On 17.3 it resolved nothing at all.
+//
+// Zero demonstrated value, non-zero chance of being the crash. The passthrough
+// in 1.1.43 is what actually opens the player, and it is confirmed working.
 
 /// Selectors on `obj`'s class chain that look like they present Now Playing.
 ///
@@ -496,70 +465,14 @@ static NSString *M27PresentationSelectors(NSObject *obj) {
         return;
     }
 
-    // GESTURE FIRST. There is no expand button to press.
+    // This path only runs when the passthrough declined to hand the touch over,
+    // which in practice means the collapsed dock — its pill sits below Music's
+    // mini player, so there is nothing underneath to receive the tap.
     //
-    // The catalog lists MiniPlayerViewController's controls in full —
-    // playPauseButton, skipButton, reverseButton, shuffleButton, repeatButton,
-    // handoffButton — and not one of them opens the player. Expanding is a
-    // gesture, which is why accessibilityActivate refused and why the control
-    // search could only ever find the wrong thing.
+    // Nothing here synthesises an action any more. Reading a recogniser's
+    // private targets and performSelector'ing them was removed after the 17.3
+    // crash report; see the note where that function used to live.
     NSArray<UIGestureRecognizer *> *taps = M27TapGesturesNear(mini, 3);
-    NSMutableString *why = [NSMutableString string];
-    NSInteger firedTargets = 0;
-    id firedTarget = nil;
-    for (UIGestureRecognizer *gr in taps) {
-        firedTargets += M27FireGestureTargets(gr, why, &firedTarget);
-        if (firedTargets > 0) break;
-    }
-
-    if (firedTargets > 0) {
-        // "Fired a target" is NOT success, and treating it as such would repeat
-        // the mistake this whole path already made twice. iOS 16.7 reports:
-        //
-        //   targets=1 MusicApplication.PalettePresentationInteraction
-        //             .tapGestureRecognized:
-        //
-        // So Music's real handler runs and the player still does not open —
-        // almost certainly the `gr.state` check flagged when this was written,
-        // since the recogniser sits in .possible and state is read-only.
-        //
-        // The passthrough above is the actual fix. This stays as a fallback for
-        // taps outside the stock mini player, and it now names the interaction's
-        // own selectors, so if a build is ever needed that calls the presenter
-        // directly there is a method name rather than another theory.
-        static NSInteger loggedFired = 0;
-        if (loggedFired < 2) {
-            loggedFired++;
-            M27WriteStatus(@"nowplaying_gesture_fired", @{
-                @"targets": @((long)firedTargets),
-                @"gestures": @((long)taps.count),
-                @"detail": why.length ? why : @"-",
-                @"target_sels": M27PresentationSelectors(firedTarget),
-            });
-        }
-        mini.userInteractionEnabled = wasInteractive;
-        return;
-    }
-
-    // The recogniser's own view is a better activation candidate than the mini
-    // player root: 1.1.39 logged `target=nil` from hitTest, so the root was
-    // never a live target to begin with.
-    for (UIGestureRecognizer *gr in taps) {
-        if (!gr.view || gr.view == mini) continue;
-        BOOL wasOn = gr.view.userInteractionEnabled;
-        gr.view.userInteractionEnabled = YES;
-        BOOL ok = NO;
-        @try { ok = [gr.view accessibilityActivate]; } @catch (__unused NSException *ex) {}
-        gr.view.userInteractionEnabled = wasOn;
-        if (ok) {
-            M27WriteStatus(@"nowplaying_activated", @{
-                @"via": @"gesture_view",
-                @"target": @(object_getClassName(gr.view)),
-            });
-            mini.userInteractionEnabled = wasInteractive;
-            return;
-        }
-    }
 
     UIView *target = nil;
     @try {
@@ -1269,7 +1182,7 @@ static M27DockOverlayWindow *M27EnsureOverlayWindow(UITabBarController *tbc, CGR
 
     if (overlay) {
         overlay.windowLevel = M27OverlayWindowLevel();
-        overlay.hidden = NO;
+        if (!gM27FullPlayerUp) overlay.hidden = NO;
         return overlay;
     }
 
@@ -1332,7 +1245,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
             overlay.frame = stripFrame;
         }
         overlay.windowLevel = M27OverlayWindowLevel();
-        overlay.hidden = NO;
+        if (!gM27FullPlayerUp) overlay.hidden = NO;
         overlay.backgroundColor = UIColor.clearColor;
         overlay.opaque = NO;
 
@@ -1532,6 +1445,16 @@ static void M27HandleScrollOffset(UIScrollView *scrollView) {
     M27FloatingDock *dock = M27DockForTabBarController(tbc);
     if (!dock || dock.mode == M27DockModeCollapsed) return;
     [dock collapseFromScroll];
+}
+
+void M27SetDockOverlayHidden(BOOL hidden) {
+    gM27FullPlayerUp = hidden;
+    UITabBarController *tbc = M27MusicTabBarController();
+    if (!tbc) return;
+    M27DockOverlayWindow *overlay = objc_getAssociatedObject(tbc, kM27DockWindowKey);
+    if (!overlay || overlay.hidden == hidden) return;
+    overlay.hidden = hidden;
+    M27WriteStatus(@"dock_overlay", @{ @"hidden": hidden ? @"yes" : @"no" });
 }
 
 void M27ApplyChromeForCurrentPrefs(void) {

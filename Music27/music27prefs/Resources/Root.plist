@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.43: tapping the pill hands the touch to Music’s mini player, and until now there was nothing there to catch it. Hiding that player with layer opacity also set its alpha to zero — they are the same property — and nothing with zero alpha can be tapped. It is hidden with a mask now, which leaves it invisible but tappable. The dock also waits for a deliberate scroll before collapsing instead of snapping shut on every flick.</string>
+			<string>1.1.44: the dock no longer floats over the full-screen player — it lives in its own window, so unlike Music’s own mini player it does not go away on its own. Tapping the collapsed pill now expands the dock rather than doing nothing, since collapsed it sits below Music’s mini player and has nothing to hand the tap to. And the code that reached into a gesture recogniser’s private targets is deleted: it never once opened the player, and it is the most likely cause of the iOS 17 crash when tapping the collapsed artwork.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -122,7 +122,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.43 — masked mini player so passthrough lands; slower scroll-collapse. Verify on iOS 16.7 + 17.3 before APT.</string>
+			<string>Music27 1.1.44 — dock hides behind the full player; crash-prone gesture code removed. Verify on iOS 16.7 + 17.3 before APT.</string>
 		</dict>
 	</array>
 	<key>title</key>

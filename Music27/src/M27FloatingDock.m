@@ -559,6 +559,16 @@ static const CGFloat kM27CircleButton = 44.0;
 }
 
 - (void)nowPlayingTapped {
+    // Collapsed, the pill sits BELOW Music's mini player — measured at
+    // dock_screen={{0, 714}, {375, 64}} against mini_screen={{12, 667},
+    // {351, 56}} — so there is nothing underneath to hand the touch to, and the
+    // passthrough correctly declines. Expanding is the honest response: it puts
+    // the pill back over the mini player, where a second tap does open the
+    // player. Better than a tap that silently does nothing.
+    if (self.mode == M27DockModeCollapsed) {
+        [self setMode:M27DockModeExpanded animated:YES];
+        return;
+    }
     if ([self.delegate respondsToSelector:@selector(floatingDockDidTapNowPlaying:)]) {
         [self.delegate floatingDockDidTapNowPlaying:self];
     }

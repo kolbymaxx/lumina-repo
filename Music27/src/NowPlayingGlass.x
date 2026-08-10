@@ -179,11 +179,25 @@ static void M27StyleNowPlayingControls(UIViewController *vc) {
 
 %hook UIViewController
 
+- (void)viewWillDisappear:(BOOL)animated {
+    %orig;
+    if (!M27IsNowPlayingControls(self)) return;
+    if (!M27Prefs.shared.enabled) return;
+    M27SetDockOverlayHidden(NO);
+}
+
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     if (!M27IsNowPlayingControls(self)) return;
     M27Prefs *prefs = M27Prefs.shared;
     if (!prefs.enabled) return;
+
+    // The dock has its own window at Normal + 2, above Music's, so the pills
+    // keep floating over the full-screen player once it opens. Music's own mini
+    // player and tab bar disappear with the presentation because they live in
+    // the app's window; ours has to be told. Not gated on nowPlayingGlass —
+    // this is a bug, not a restyle.
+    if (prefs.glassTabBarEnabled) M27SetDockOverlayHidden(YES);
 
     // Report on every presentation regardless of the style pref — the point is
     // to learn this screen's real shape, and that costs one log line.
