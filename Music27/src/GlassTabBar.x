@@ -217,6 +217,11 @@ static void M27NextTrack(void) {
 
 static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock);
 static UIViewController *M27FindMiniPlayerViewController(UITabBarController *tbc);
+/// Hide / restore without touching alpha — see the definitions below for why
+/// `layer.opacity` is not an option. Declared here because the chrome restore
+/// path is defined earlier in the file than the helpers themselves.
+static void M27MaskOutView(UIView *view);
+static void M27UnmaskView(UIView *view);
 
 @interface M27DockController : NSObject <M27FloatingDockDelegate>
 @property (nonatomic, weak) UITabBarController *tabBarController;
