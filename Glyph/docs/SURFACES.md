@@ -19,10 +19,39 @@ Status legend:
 | Dock icons | CONFIRMED UIKIT | CONFIRMED UIKIT | Same `SBIconImageView` pipeline as the grid | B — same hook, no extra code |
 | Folder icons (mini-grids) | CONFIRMED UIKIT | CONFIRMED UIKIT | Folder blur/mini-icons composed from the same icon images | B — themed automatically via the icon pipeline; folder background theming deferred to D |
 | Notification badges | CONFIRMED UIKIT | CONFIRMED UIKIT | `SBIconBadgeView` (UIKit) | D — badge asset theming, classic hook (not yet implemented) |
-| Lock Screen widgets | PENDING DUMP | PENDING DUMP | Expected SwiftUI-hosted (WidgetKit); needs SwiftPeek dump from SpringBoard with `dumpFields` on, lock screen visible | C candidate — `CALayer.contents` boundary only, after dump confirms |
-| App Library detail panes | PENDING DUMP | PENDING DUMP | Expected partially SwiftUI on 17.x; unknown on 16.7 | C candidate — after dump confirms |
-| Spotlight | PENDING DUMP | PENDING DUMP | Expected mixed UIKit/SwiftUI | C candidate — after dump confirms |
+| Lock Screen widgets | PENDING DUMP | **CONFIRMED UIKIT (host process)** | `dumps/SpringBoard_17.3_windowscan_141702.json`: `CSCoverSheetViewController`, `CSProminentDisplayViewController`, `CSComplicationContainerViewController`, `SBFLockScreenDateViewController` — all UIKit, **`hosts_found: 0`** | **Not a Phase C target.** See "WidgetKit is not in SpringBoard" below |
+| App Library detail panes | PENDING DUMP | PENDING DUMP | Not on screen during the 17.3 scans; `SBHRootSidebarController` / `SBHWidgetStackViewController` seen, no App Library classes | C candidate — needs a dump with App Library open |
+| Spotlight | PENDING DUMP | **CONFIRMED UIKIT** | Same dump: `SBSpotlightPresentableViewController`, `SBHomeScreenSpotlightViewController`, `screen_strings: ["Search"]`, `hosts_found: 0` | Classic UIKit hook if ever wanted |
 | Control Center modules | CONFIRMED UIKIT | CONFIRMED UIKIT | `CCUI*` classes (see CC27, which hooks them today) | Out of scope for Glyph — CC27 territory |
+
+## WidgetKit is not in SpringBoard — and that settles Phase C's first target
+
+Two full window scans on **iPhone13,1 / iOS 17.3** (lock screen, home screen,
+Spotlight, switcher and Control Center all reached: 73 and 76 controllers)
+returned **`hosts_found: 0`**. Not one `_UIHostingView` anywhere in
+SpringBoard's window tree.
+
+That is not a scan failure — it is the answer. WidgetKit widgets are rendered
+**out of process** by their own extension and delivered to SpringBoard as
+archived drawing output. The SwiftUI lives in the widget extension, not here.
+`SBHWidgetViewController` and `SBHWidgetContainerViewController` are present in
+the dump and are plain UIKit containers around that delivered content.
+
+Consequences for Glyph:
+
+- **Lock Screen widgets cannot be themed from SpringBoard at the SwiftUI
+  layer**, because there is no SwiftUI layer in SpringBoard to reach. Phase C's
+  presumed first target does not exist as described. The remaining options are
+  the `CALayer.contents` boundary of the UIKit container, or injecting into the
+  widget extension process — a different tweak with a different filter and a
+  different risk profile.
+- Phase C is **not** blocked on more dumps for this surface. It is blocked on
+  choosing between those two options.
+
+Caveat on scope: these scans are 17.3 only, and the walk covers
+already-loaded view trees, so a surface that was never on screen was never
+walked. App Library stays `PENDING DUMP` for exactly that reason, and 16.7
+still needs its own scan.
 
 ## Other processes
 
@@ -39,6 +68,11 @@ opt-in SpringBoard mode** built for exactly this: ObjC-only, no hooks, no Swift
 metadata walks, and two independent switches that both default off —
 `targetSpringBoard` to allow injection at all, then `sbScanWindows` for the
 hook-free hosting-view scan that answers the UIKit-vs-SwiftUI question.
+
+**Proven on device (2026-08-10, iPhone13,1 / 17.3):** SwiftPeek 0.4.0 ran in
+SpringBoard with `targetSpringBoard` + `sbScanWindows` + `iconInventory` and
+produced four dumps with **no Safe Mode and no respring loop**. The dumps are
+banked in [`dumps/`](dumps/).
 
 1. Enable SwiftPeek (`enabled` + `targetSpringBoard` + `sbScanWindows`, plus
    `dumpFields` for on-screen strings) and bring the surface on screen

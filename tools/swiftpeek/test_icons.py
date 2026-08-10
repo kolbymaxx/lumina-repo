@@ -14,6 +14,7 @@ from swiftpeek.icons import (  # noqa: E402
     build_tint_plan,
     classify_icon,
     format_icons,
+    is_placeholder,
     iter_icons,
 )
 
@@ -64,7 +65,7 @@ DUMP = {
         {
             "bundle_id": "com.busy.art",
             "display_name": "Busy",
-            "icon_signature": sig(edge_density=0.09),
+            "icon_signature": sig(edge_density=0.20),
         },
         {
             "bundle_id": "com.themed.app",
@@ -74,6 +75,15 @@ DUMP = {
             "theme_signature": sig(alpha_coverage=0.20),
         },
         {"bundle_id": "com.no.art", "display_name": "None"},
+        {
+            # The blank UIKit substitutes for a bundle with no icon — 106 of
+            # the 201 entries in the first device inventory looked like this.
+            "bundle_id": "com.apple.AXRemoteViewService",
+            "display_name": "AX Remote",
+            "icon_signature": sig(mean_hex="#f2f2f2", dominant_hex="#ffffff",
+                                  saturation_mean=0.0, luma_p02=0.93,
+                                  luma_p50=0.95, luma_p98=0.97),
+        },
     ],
 }
 
@@ -116,6 +126,25 @@ class IconClassificationTests(unittest.TestCase):
         self.assertTrue(v.themed)
         self.assertEqual(v.shape, "glyph_only")
 
+    def test_placeholder_icons_are_dropped(self):
+        # UI-service bundles never reach the Home Screen, and letting them
+        # through skewed every threshold on the first real inventory.
+        ids = [e["bundle_id"] for e in iter_icons(DUMP)]
+        self.assertNotIn("com.apple.AXRemoteViewService", ids)
+        self.assertIn("com.full.bleed", ids)
+        self.assertIn("com.apple.AXRemoteViewService",
+                      [e["bundle_id"] for e in iter_icons(DUMP, skip_placeholders=False)])
+
+    def test_placeholder_signature_detected_both_ways(self):
+        self.assertTrue(is_placeholder({"mean_hex": "#f2f2f2",
+                                        "dominant_hex": "#ffffff"}))
+        self.assertTrue(is_placeholder({"saturation_mean": 0.0,
+                                        "luma_p02": 0.91}))
+        self.assertFalse(is_placeholder({"mean_hex": "#c0603a",
+                                         "dominant_hex": "#d06840",
+                                         "saturation_mean": 0.55,
+                                         "luma_p02": 0.2}))
+
     def test_missing_artwork_is_not_fatal(self):
         v = self.verdict("com.no.art")
         self.assertEqual(v.shape, "unknown")
@@ -129,6 +158,7 @@ class TintPlanTests(unittest.TestCase):
         self.assertEqual(plan["global"]["mode_name"], "glass")
         self.assertEqual(plan["global"]["tintColor"], "#33AAFF")
         self.assertEqual(plan["summary"]["icons"], 7)
+        self.assertEqual(plan["summary"]["placeholders_skipped"], 1)
         self.assertEqual(plan["summary"]["themed"], 1)
         self.assertEqual(plan["source"]["ios_version"], "16.7.14")
 

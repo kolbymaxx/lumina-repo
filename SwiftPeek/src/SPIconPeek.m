@@ -105,13 +105,38 @@ static NSString *SPProxyStringValue(id proxy, NSString *selName) {
 }
 
 /// Apple's own daemons and hidden system bundles are noise for a themer.
+///
+/// The first device inventory (iPhone13,1 / 17.3) returned 201 entries of which
+/// 106 shared one identical near-white signature: AXRemoteViewService,
+/// AskPermissionUI, CTCarrierSpaceAuth and a long tail of other UI-service
+/// bundles. They have no icon, so UIKit hands back a generic placeholder, and
+/// checking `applicationType == "Hidden"` alone does not catch them — they are
+/// typed "System" and marked hidden through `appTags` instead.
 static BOOL SPProxyIsUserVisible(id proxy) {
     NSString *type = SPProxyStringValue(proxy, @"applicationType") ?: @"";
     if ([type isEqualToString:@"Hidden"]) return NO;
+
     NSString *bundleID = SPProxyStringValue(proxy, @"applicationIdentifier") ?: @"";
     if (bundleID.length == 0) return NO;
     if ([bundleID hasPrefix:@"com.apple.datadetectors"]) return NO;
     if ([bundleID hasPrefix:@"com.apple.webapp"]) return NO;
+
+    // The tag SpringBoard itself uses to keep a bundle off the Home Screen.
+    SEL tagsSel = NSSelectorFromString(@"appTags");
+    if ([proxy respondsToSelector:tagsSel]) {
+        id tags = ((id (*)(id, SEL))objc_msgSend)(proxy, tagsSel);
+        if ([tags isKindOfClass:[NSArray class]]) {
+            for (id tag in (NSArray *)tags) {
+                if (![tag isKindOfClass:[NSString class]]) continue;
+                if ([tag caseInsensitiveCompare:@"hidden"] == NSOrderedSame) return NO;
+                if ([tag caseInsensitiveCompare:@"SBInternalAppTag"] == NSOrderedSame) return NO;
+            }
+        }
+    }
+
+    // Bundles that still slip through with a placeholder icon are dropped
+    // host-side by the signature check in tools/swiftpeek/icons.py, which is
+    // the backstop for firmwares that tag things differently.
     return YES;
 }
 

@@ -40,12 +40,25 @@ MODE_NAMES = {
     MODE_CLEAR_GLASS_DARK: "glassDark",
 }
 
-# Thresholds. These mirror the ones GLApplyRecipe uses on device so the host
-# plan and the runtime agree about what a given icon is.
+# Thresholds, calibrated against a real inventory (iPhone13,1 / iOS 17.3, 201
+# entries of which 95 carry genuine artwork). The first cut used values guessed
+# from synthetic test icons and flagged 189 of 201 as needing a per-app
+# override, which is worse than useless — an override list is only meaningful
+# if it is the exception. Real app artwork is far denser than a synthetic
+# glyph: measured edge density runs p25 0.052 / median 0.085 / p90 0.150, so
+# "busy" has to mean the top decile, not everything above a synthetic baseline.
 GLYPH_ONLY_COVERAGE = 0.55   # below this, there is no plate to speak of
-FLAT_PLATE_RATIO = 0.45      # this much of one quantised colour == a flat plate
-LOW_CONTRAST_SPAN = 0.18     # p98 - p02 below this is degenerate for auto-levels
-BUSY_EDGE_DENSITY = 0.045    # dense detail: photographic or heavily textured
+FLAT_PLATE_RATIO = 0.70      # real median is 0.415; a true flat plate is p85+
+LOW_CONTRAST_SPAN = 0.36     # real p05 is 0.354 — below that auto-levels bands
+BUSY_EDGE_DENSITY = 0.150    # real p90; above this the ramp fights the artwork
+
+# Signature of the generic placeholder UIKit returns for a bundle that has no
+# icon of its own — 106 of those 201 entries were this exact image. They are UI
+# service bundles that never appear on the Home Screen. SwiftPeek 0.4.1 filters
+# them on-device via `appTags`; this is the backstop for dumps taken before
+# that, and for firmwares that tag things differently.
+PLACEHOLDER_MEAN_HEX = "#f2f2f2"
+PLACEHOLDER_DOMINANT_HEX = "#ffffff"
 
 
 @dataclass
@@ -78,10 +91,33 @@ def load_icon_dump(path: str | Path) -> dict[str, Any]:
     return json.loads(Path(path).read_text())
 
 
-def iter_icons(dump: dict[str, Any]) -> Iterable[dict[str, Any]]:
+def is_placeholder(sig: dict[str, Any]) -> bool:
+    """True for the blank icon UIKit substitutes when a bundle has none."""
+    if not sig:
+        return False
+    if (sig.get("mean_hex") == PLACEHOLDER_MEAN_HEX
+            and sig.get("dominant_hex") == PLACEHOLDER_DOMINANT_HEX):
+        return True
+    # Belt and braces: fully desaturated and uniformly near-white.
+    try:
+        if (float(sig.get("saturation_mean", 1.0)) <= 0.001
+                and float(sig.get("luma_p02", 0.0)) >= 0.85):
+            return True
+    except (TypeError, ValueError):
+        pass
+    return False
+
+
+def iter_icons(dump: dict[str, Any], *, skip_placeholders: bool = True
+               ) -> Iterable[dict[str, Any]]:
     for entry in dump.get("icons") or []:
-        if isinstance(entry, dict) and entry.get("bundle_id"):
-            yield entry
+        if not isinstance(entry, dict) or not entry.get("bundle_id"):
+            continue
+        if skip_placeholders and not entry.get("theme_override"):
+            sig = entry.get("icon_signature")
+            if isinstance(sig, dict) and is_placeholder(sig):
+                continue
+        yield entry
 
 
 def _sig(entry: dict[str, Any]) -> dict[str, Any]:
@@ -158,7 +194,10 @@ def build_tint_plan(dump: dict[str, Any], mode: int = MODE_TINTED,
     only appear for icons that actually need something other than the global
     recipe, so the plan stays small and readable.
     """
-    verdicts = [classify_icon(e) for e in iter_icons(dump)]
+    all_entries = list(iter_icons(dump, skip_placeholders=False))
+    kept = list(iter_icons(dump))
+    skipped = len(all_entries) - len(kept)
+    verdicts = [classify_icon(e) for e in kept]
 
     per_app: dict[str, Any] = {}
     for v in verdicts:
@@ -188,6 +227,7 @@ def build_tint_plan(dump: dict[str, Any], mode: int = MODE_TINTED,
         },
         "summary": {
             "icons": len(verdicts),
+            "placeholders_skipped": skipped,
             "themed": sum(1 for v in verdicts if v.themed),
             "shapes": shapes,
             "contrast": contrasts,
