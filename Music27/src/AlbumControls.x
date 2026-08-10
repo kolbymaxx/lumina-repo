@@ -383,8 +383,14 @@ static NSString *M27HideViewKeepLayout(UIView *view) {
     if ([name containsString:@"Hosting"] || [name containsString:@"UIHosting"]) return @"hosting";
     if (view.bounds.size.height > 72.0) return @"too_tall";
     if (view.bounds.size.width > 420.0) return @"too_wide";
-    // layer.opacity, not alpha: alpha < 0.01 makes a view un-hit-testable, and
-    // M27FireControl may need to reach it. Same trap the dock hit in 1.1.28.
+    // NOTE: this does NOT keep the view hit-testable. UIView.alpha is backed by
+    // CALayer.opacity — they are one property — so this sets alpha to 0 just as
+    // surely as assigning alpha would. 1.1.29 believed otherwise and the dock
+    // paid for it until 1.1.43.
+    //
+    // It is fine here only because M27FireControl sends actions to the stock
+    // control directly and never hit-tests it. Anything that needs to stay
+    // tappable has to be masked instead — see M27MaskOutView in GlassTabBar.x.
     view.layer.opacity = 0.0;
     return nil;
 }

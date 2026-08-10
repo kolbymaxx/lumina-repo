@@ -105,7 +105,8 @@ Each entry cost at least one device cycle.
 | `MPMusicPlayerController` inside Music.app | **Crashes Music** — it is an IPC client for Music, called from inside Music | Never. Use MediaRemote |
 | `MPNowPlayingInfoCenter.nowPlayingInfo` read inside the playing app | Always empty — it is the *publish* side of the API | Read MediaRemote instead |
 | Swift-linked dylib in SpringBoard | Safe Mode (SwiftPeek 0.2.1) | Keep the library ObjC-only |
-| `alpha < 0.01` to hide a view you still need to hit-test | `hitTest:` returns nil; forwarded taps die silently | Use `layer.opacity = 0` |
+| `alpha < 0.01` to hide a view you still need to hit-test | `hitTest:` returns nil; forwarded taps die silently | Hide it with an empty `CALayer` mask. **NOT `layer.opacity`** — see below |
+| Believing `layer.opacity` is an alternative to `alpha` | `UIView.alpha` is backed by `CALayer.opacity`; they are the same property. Music27 1.1.29 "fixed" a dead tap by swapping one for the other, changed nothing, and the view stayed unreachable for fourteen more versions | An empty mask layer renders nothing while leaving `alpha` at 1, so hit-testing still descends |
 | `userInteractionEnabled = NO` on a view you forward taps to | Same — `hitTest:` refuses it | Lift it only for the lookup |
 | FOVO field walks on Music UIViewControllers / UIViews | SIGSEGV (0.3.0, 0.3.5) | Per-app allowlist; never transfers |
 | Async logging around a suspected crash | Loses exactly the line that explains it | Synchronous + `fsync` |

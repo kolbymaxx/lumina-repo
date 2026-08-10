@@ -83,9 +83,15 @@ inherits them:
   candidate path masks the real prefs at a later one.
 
 One rule that belongs with these but cannot live in a class: to hide a view you
-still need to hit-test, use `layer.opacity = 0`, never `alpha = 0`. `hitTest:`
-refuses views below alpha 0.01 and forwarded taps die silently. Music27 hit this
-twice, in 1.1.28 and 1.1.31.
+still need to hit-test, use an **empty `CALayer` mask**. `hitTest:` refuses views
+below alpha 0.01, so a faded view forwards nothing.
+
+`layer.opacity` is **not** an escape from that — `UIView.alpha` is backed by
+`CALayer.opacity` and they are the same property. Music27 1.1.29 swapped one for
+the other to fix a dead tap, changed nothing, and the view stayed unreachable
+until 1.1.43 measured it on device (`mini_alpha=0` where only `layer.opacity` had
+been assigned). A mask layer with no opaque pixels renders nothing while `alpha`
+stays 1, which is the only combination that hides and still hit-tests.
 
 ## Adoption
 

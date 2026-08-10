@@ -41,9 +41,13 @@ NS_ASSUME_NONNULL_BEGIN
 ///   caps the height so a safe-area surprise cannot grow it.
 ///
 /// Hiding rule that is NOT in this class but bites everyone who uses it: to hide
-/// a view you still need to hit-test, set `layer.opacity = 0`, never `alpha = 0`
-/// — `hitTest:` refuses views below alpha 0.01 and your forwarded taps die
-/// silently.
+/// a view you still need to hit-test, use an **empty `CALayer` mask**. `hitTest:`
+/// refuses views below alpha 0.01, so a faded view swallows nothing and forwards
+/// nothing — and `layer.opacity` is NOT a way around that. `UIView.alpha` is
+/// backed by `CALayer.opacity`; they are the same property. Music27 1.1.29
+/// swapped one for the other believing otherwise and left a dead tap in place
+/// for fourteen versions. A mask layer with no opaque pixels renders nothing
+/// while `alpha` stays 1, which is the only combination that works.
 @interface SPKOverlayWindow : UIWindow
 
 /// Create at `frame`, attached to `scene` when one is available. The window is

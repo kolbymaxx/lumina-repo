@@ -51,6 +51,14 @@
 static const NSInteger kM27DockTag = 0x4D323744; // 'M27D'
 static const NSInteger kM27CoverTag = 0x4D32434F; // 'M2CO' (legacy teardown only)
 static const CGFloat kM27ScrollCollapseY = 48.0;
+/// How long a scroll must be underway, and how far it must travel, before the
+/// dock collapses. Both must hold — a timer alone lets a slow nudge through, a
+/// distance alone lets a flick through.
+static const NSTimeInterval kM27ScrollCollapseDelay = 0.45;
+static const CGFloat kM27ScrollCollapseDistance = 90.0;
+/// A gap this long means a new scroll, so the timer restarts rather than
+/// treating a fresh flick as the continuation of an old one.
+static const NSTimeInterval kM27ScrollIdleReset = 0.9;
 static const CGFloat kM27FloatGap16 = 12.0;
 static const CGFloat kM27FloatGap17 = 14.0;
 
@@ -1064,6 +1072,7 @@ static void M27RestoreStockChromeIfNeeded(UITabBarController *tbc) {
     for (UIView *sub in tbc.view.subviews) {
         if ([NSStringFromClass(sub.class) containsString:@"PaletteContainerView"]) {
             sub.layer.opacity = 1.0;
+            M27UnmaskView(sub);
         }
     }
 
@@ -1073,6 +1082,7 @@ static void M27RestoreStockChromeIfNeeded(UITabBarController *tbc) {
         if (mini) {
             mini.alpha = 1.0;
             mini.layer.opacity = 1.0;
+            M27UnmaskView(mini);
             mini.userInteractionEnabled = YES;
         }
     }
@@ -1090,6 +1100,32 @@ static void M27RestoreStockChromeIfNeeded(UITabBarController *tbc) {
 /// build also carried the MPMusicPlayerController call that 1.1.26 proved was
 /// crashing Music, so the attribution is suspect — but it is not disproven
 /// either, hence the separate `hideStockChrome` pref.
+/// Hide a view without making it un-hit-testable.
+///
+/// The whole point: an empty CALayer mask has no opaque pixels, so the view
+/// renders nothing — but `alpha` is untouched, `hidden` stays NO, and
+/// `hitTest:` still descends into it. That is the one thing neither `alpha` nor
+/// `layer.opacity` can do, because they are the same property.
+static void M27MaskOutView(UIView *view) {
+    if (!view) return;
+    if (view.layer.mask && view.layer.mask.name &&
+        [view.layer.mask.name isEqualToString:@"M27Mask"]) {
+        return;  // already masked; re-masking every layout would churn
+    }
+    CALayer *mask = [CALayer layer];
+    mask.name = @"M27Mask";
+    mask.frame = CGRectZero;
+    view.layer.mask = mask;
+}
+
+static void M27UnmaskView(UIView *view) {
+    if (!view) return;
+    CALayer *mask = view.layer.mask;
+    if (mask && mask.name && [mask.name isEqualToString:@"M27Mask"]) {
+        view.layer.mask = nil;
+    }
+}
+
 static void M27HideStockChromeForDock(UITabBarController *tbc) {
     if (!tbc.isViewLoaded) return;
     if (!M27Prefs.shared.hideStockChromeEnabled) {
@@ -1122,7 +1158,11 @@ static void M27HideStockChromeForDock(UITabBarController *tbc) {
         // the mini player we forward Now Playing taps to lives inside it.
         for (UIView *sub in tbc.view.subviews) {
             if ([NSStringFromClass(sub.class) containsString:@"PaletteContainerView"]) {
-                sub.layer.opacity = 0.0;
+                // MASK, not opacity. The mini player lives INSIDE this container
+                // (`mini_super=…PaletteContainerView…ContainerView`), so fading
+                // the container blocks hit-testing for everything in it — the
+                // mini player included.
+                M27MaskOutView(sub);
                 hidPalette = YES;
             }
         }
@@ -1131,13 +1171,24 @@ static void M27HideStockChromeForDock(UITabBarController *tbc) {
         if (miniVC.isViewLoaded && M27ClassNameHasSuffix(miniVC, @"MiniPlayerViewController")) {
             UIView *mini = miniVC.view;
             if (mini) {
-                // layer.opacity, NOT alpha. `hitTest:` returns nil for any view
-                // with alpha < 0.01, and floatingDockDidTapNowPlaying hit-tests
-                // this very view to open Now Playing — 1.1.28 faded it with
-                // alpha and made the dock's mini pill dead as a result.
-                // layer.opacity hides it just as well and leaves alpha at 1.
-                mini.layer.opacity = 0.0;
-                mini.userInteractionEnabled = NO;
+                // `layer.opacity` IS `alpha`. They are one property.
+                //
+                // 1.1.29 swapped alpha for layer.opacity to keep this view
+                // hit-testable, and that never did anything: UIView.alpha is
+                // backed by CALayer.opacity, so setting either sets both. The
+                // device log said so plainly — only layer.opacity was ever
+                // assigned here, and it read back `mini_alpha=0 mini_opacity=0`.
+                // hitTest: refuses anything under alpha 0.01, so the mini player
+                // has been unreachable this whole time and the passthrough had
+                // nothing to hand the touch to.
+                //
+                // A mask hides the view without touching alpha at all: an empty
+                // mask layer has no opaque pixels, so nothing renders, while
+                // alpha stays 1 and hit-testing still descends.
+                M27MaskOutView(mini);
+                // And it has to accept touches now — declining a touch only
+                // helps if the thing underneath will take it.
+                mini.userInteractionEnabled = YES;
                 hidMini = YES;
             }
         }
@@ -1450,6 +1501,23 @@ static void M27HandleScrollOffset(UIScrollView *scrollView) {
     if (!scrollView.isDragging && !scrollView.isDecelerating) return;
     if (fabs(scrollView.contentOffset.x) > fabs(scrollView.contentOffset.y)) return;
     if (scrollView.contentOffset.y < kM27ScrollCollapseY) return;
+
+    // Don't collapse on a flick. 48pt is about one thumb-nudge, and the dock was
+    // snapping shut the instant a scroll started — it felt like it was waiting
+    // to pounce rather than responding to a deliberate scroll.
+    //
+    // Two guards: the scroll has to have been going for a moment, and it has to
+    // have covered real distance. Either alone is defeatable — a slow 10pt drag
+    // passes the timer, a fast flick passes the distance — so both must hold.
+    static NSTimeInterval scrollBegan = 0;
+    static CGFloat beganAtY = 0;
+    NSTimeInterval now = CACurrentMediaTime();
+    if (scrollBegan == 0 || (now - scrollBegan) > kM27ScrollIdleReset) {
+        scrollBegan = now;
+        beganAtY = scrollView.contentOffset.y;
+    }
+    if ((now - scrollBegan) < kM27ScrollCollapseDelay) return;
+    if ((scrollView.contentOffset.y - beganAtY) < kM27ScrollCollapseDistance) return;
 
     // Collapse the overlay dock only — never mutate scroll hosts / Library.
     UITabBarController *tbc = M27MusicTabBarController();
