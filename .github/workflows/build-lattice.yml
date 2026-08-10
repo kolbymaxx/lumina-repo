@@ -7,6 +7,17 @@ on:
     paths:
       - 'Lattice/**'
       - '.github/workflows/build-lattice.yml'
+  # Also build on PRs, paths-scoped like SwiftPeek's. Without this the only
+  # check that appears on a pull request is Build SwiftPeek, which reads as
+  # "nothing else built" even when the push-event runs all went green.
+  pull_request:
+    paths:
+      - 'Lattice/**'
+      - '.github/workflows/build-lattice.yml'
+
+concurrency:
+  group: lattice-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
