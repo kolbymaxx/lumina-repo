@@ -86,14 +86,31 @@ jobs:
               echo "ERROR: targetSpringBoard is not exposed in the prefs bundle" >&2
               exit 1
             }
-            # An ObjC-only dylib is load-bearing here: Swift runtime + SpringBoard
-            # is the exact 0.2.0 failure. No Swift sources may enter the build.
-            if ls "$GITHUB_WORKSPACE"/SwiftPeek/src/*.swift >/dev/null 2>&1; then
-              if grep -q '\.swift' "$GITHUB_WORKSPACE/SwiftPeek/Makefile"; then
-                echo "ERROR: Swift source in a SpringBoard-injecting SwiftPeek" >&2
-                exit 1
-              fi
-            fi
+          fi
+          # An ObjC-only dylib is load-bearing: Swift runtime + SpringBoard is
+          # the exact 0.2.1 failure, and the Makefile already states the rule
+          # for every process, not just SpringBoard. So this runs unconditionally
+          # rather than only when SpringBoard is in the filter.
+          #
+          # Checked on the BUILT DYLIB, not on the source layout. The previous
+          # version only looked when SwiftPeek/src/*.swift existed and then
+          # grepped the Makefile — so Swift living anywhere else, or reaching
+          # _FILES through a variable, sailed straight past it. A linked Swift
+          # runtime is the thing that actually bricks SpringBoard, and otool
+          # reports that directly.
+          DYLIB="$(find "$TMP" -name 'SwiftPeek.dylib' | head -1)"
+          test -n "$DYLIB"
+          echo "Linkage for $DYLIB:"
+          otool -L "$DYLIB"
+          if otool -L "$DYLIB" | grep -Eq 'libswiftCore|/usr/lib/swift/|@rpath/libswift'; then
+            echo "ERROR: SwiftPeek.dylib links the Swift runtime — this is the 0.2.1 Safe Mode bug" >&2
+            exit 1
+          fi
+          # Belt and braces: nothing in the build description may name a .swift
+          # source, wherever that source happens to live.
+          if grep -q '\.swift' "$GITHUB_WORKSPACE/SwiftPeek/Makefile"; then
+            echo "ERROR: SwiftPeek/Makefile references a .swift source" >&2
+            exit 1
           fi
           PREFS="$(find "$TMP" -path '*/PreferenceLoader/Preferences/SwiftPeek.plist' | head -1)"
           test -n "$PREFS"

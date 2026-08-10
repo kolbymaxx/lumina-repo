@@ -12,7 +12,9 @@ sys.path.insert(0, str(ROOT))
 from swiftpeek.icons import (  # noqa: E402
     MODE_CLEAR_GLASS,
     build_tint_plan,
+    calibration_report,
     classify_icon,
+    format_calibration,
     format_icons,
     is_placeholder,
     iter_icons,
@@ -179,6 +181,75 @@ class TintPlanTests(unittest.TestCase):
         text = format_icons(verdicts, limit=3)
         self.assertEqual(len(text.splitlines()), 3)
         self.assertIn("com.full.bleed", text)
+
+
+class CalibrationTests(unittest.TestCase):
+    """The report exists to catch a repeat of the 189-of-201 tuning mistake.
+
+    It reports; it never retunes. These fixtures are synthetic, which is exactly
+    the trap the thresholds were originally tuned into, so the assertions here
+    are about the report's mechanics — never about what a healthy override rate
+    for real artwork looks like.
+    """
+
+    def test_reports_every_threshold(self):
+        report = calibration_report(DUMP)
+        names = {m["threshold_name"] for m in report["metrics"]}
+        self.assertEqual(names, {
+            "GLYPH_ONLY_COVERAGE",
+            "FLAT_PLATE_RATIO",
+            "LOW_CONTRAST_SPAN",
+            "BUSY_EDGE_DENSITY",
+        })
+        for m in report["metrics"]:
+            self.assertEqual(set(m["percentiles"]),
+                             {"p05", "p25", "p50", "p75", "p90", "p95"})
+
+    def test_placeholders_are_excluded_from_the_distribution(self):
+        report = calibration_report(DUMP)
+        self.assertEqual(report["placeholders_skipped"], 1)
+        self.assertEqual(report["analysed"], report["icons_in_dump"] - 1)
+
+    def test_override_rate_matches_the_classifier(self):
+        entries = list(iter_icons(DUMP))
+        expected = sum(1 for e in entries if classify_icon(e).settings)
+        report = calibration_report(DUMP)
+        self.assertEqual(report["overrides"], expected)
+        self.assertAlmostEqual(report["override_rate"], expected / len(entries))
+
+    def test_carries_provenance_so_dumps_are_not_confused(self):
+        report = calibration_report(DUMP)
+        self.assertEqual(report["ios_version"], "16.7.14")
+        self.assertEqual(report["device_model"], "iPhone10,6")
+
+    def test_warns_when_overrides_are_not_a_minority(self):
+        # Every icon glyph-only: the shape of the original bad calibration.
+        bad = {"icons": [
+            {"bundle_id": f"com.app{i}", "icon_signature": sig(alpha_coverage=0.05)}
+            for i in range(10)
+        ]}
+        report = calibration_report(bad)
+        self.assertEqual(report["override_rate"], 1.0)
+        self.assertIn("WARNING", format_calibration(report))
+
+        healthy = format_calibration(calibration_report(
+            {"icons": [{"bundle_id": f"com.app{i}", "icon_signature": sig()}
+                       for i in range(10)]}
+        ))
+        self.assertNotIn("WARNING", healthy)
+
+    def test_empty_dump_does_not_divide_by_zero(self):
+        report = calibration_report({"icons": []})
+        self.assertEqual(report["override_rate"], 0.0)
+        self.assertEqual(report["analysed"], 0)
+        self.assertIn("per-app overrides: 0/0", format_calibration(report))
+
+    def test_percentiles_are_ordered(self):
+        report = calibration_report(DUMP)
+        for m in report["metrics"]:
+            values = [m["percentiles"][k] for k in
+                      ("p05", "p25", "p50", "p75", "p90", "p95")]
+            self.assertEqual(values, sorted(values), m["metric"])
 
 
 if __name__ == "__main__":

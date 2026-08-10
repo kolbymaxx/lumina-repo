@@ -7,7 +7,7 @@ than resolved silently by whoever merges last.
 | PR | Branch | SwiftPeek version | What it does |
 |----|--------|-------------------|--------------|
 | #59 | `claude/continue-1-1-21-owif9e` | **0.4.1** | Per-window level/frame/alpha dumps, depth-3 subtree, **pref-driven per-process targets**, SSH kill switch. Adds `SPKit` shared runtime. Targets Music, Podcasts, TV, Preferences, SiriViewService, assistantd. |
-| (this) | `claude/swiftpeek-springboard-recon` | **0.4.0** | Icon inventory + M3 pixel signatures, hook-free hosting-view scan, **opt-in SpringBoard target**. Host analyser (`icons`, `tint-plan`) feeding Glyph. |
+| (this) | `claude/swiftpeek-springboard-recon` | **0.4.0** | Icon inventory + M3 pixel signatures, hook-free hosting-view scan, **opt-in SpringBoard target**. Host analyser (`icons`, `tint-plan`, `calibration`) feeding Glyph. |
 | #47 | `cursor/swiftpeek-host-polish-99e4` | unchanged | Host tooling only: catalog browse, richer KVC scaffold stubs. Bumps `tools/swiftpeek` to `0.6.0`. |
 
 ## The disagreement: may SwiftPeek enter SpringBoard?
@@ -58,7 +58,26 @@ exists.
 edits `api.py` / `cli.py` / `test_api.py`. These are ordinary textual conflicts
 with no disagreement behind them. Whoever merges last should land at **0.7.0**
 and keep all three feature sets: catalog browse + scaffold stubs (#47), the
-api/cli additions (#59), and `icons` / `tint-plan` (#60).
+api/cli additions (#59), and `icons` / `tint-plan` / `calibration` (#60).
+
+`__version__` on this branch is deliberately left at 0.6.0 rather than moved to
+0.7.0 early. 0.7.0 is the *post-merge* number; claiming it before the merge
+would just recreate the same collision one version higher.
+
+### `calibration` (added after the 0.6.0 bump)
+
+`python3 -m swiftpeek calibration DUMP.json` reports where a dump's measurements
+actually fall against the four thresholds in `icons.py`, plus the resulting
+per-app override rate. It changes no threshold — it exists so the rule written
+in that file's comment ("re-run against a real dump and check the override count
+stays a small minority") is something you can run instead of something you have
+to remember.
+
+That rule was written because the first tuning pass, done against synthetic
+icons, flagged 189 of 201 entries as needing an override. Exit status is 2 when
+the override rate clears a third, so it works as a check and not only as a
+report. The upcoming 16.7 dump is the first real test of whether thresholds
+calibrated on 17.3 transfer to another firmware.
 
 ## Other duplication introduced by #60
 

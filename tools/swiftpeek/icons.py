@@ -238,6 +238,134 @@ def build_tint_plan(dump: dict[str, Any], mode: int = MODE_TINTED,
     }
 
 
+# The four quantities the thresholds cut against, and which side of the cut
+# counts as "selected" — i.e. the branch that produces a per-app override.
+_CALIBRATED = (
+    ("alpha_coverage", "GLYPH_ONLY_COVERAGE", GLYPH_ONLY_COVERAGE, "below"),
+    ("plate_ratio", "FLAT_PLATE_RATIO", FLAT_PLATE_RATIO, "at_or_above"),
+    ("luma_span", "LOW_CONTRAST_SPAN", LOW_CONTRAST_SPAN, "below"),
+    ("edge_density", "BUSY_EDGE_DENSITY", BUSY_EDGE_DENSITY, "at_or_above"),
+)
+
+_PERCENTILES = (5, 25, 50, 75, 90, 95)
+
+
+def _percentile(values: list[float], pct: float) -> float:
+    """Nearest-rank percentile. No numpy — this package stays dependency-free."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    rank = (pct / 100.0) * (len(ordered) - 1)
+    low = int(rank)
+    high = min(low + 1, len(ordered) - 1)
+    frac = rank - low
+    return ordered[low] * (1.0 - frac) + ordered[high] * frac
+
+
+def calibration_report(dump: dict[str, Any]) -> dict[str, Any]:
+    """Where this dump's measurements actually fall against the thresholds.
+
+    The thresholds in this module are tuned to one real inventory (iPhone13,1 /
+    iOS 17.3). A first attempt tuned them against synthetic icons instead and
+    flagged 189 of 201 entries as needing a per-app override — an override list
+    is only useful when it is the exception, so that was worse than useless.
+
+    Nothing here changes a threshold. It reports the distribution each threshold
+    is cutting and the resulting override rate, so a dump from another device or
+    firmware can be checked in one command rather than by eye. If the override
+    rate is not a small minority, the thresholds do not transfer to that dump —
+    which is a finding about the dump, not a licence to retune blind.
+    """
+    entries = list(iter_icons(dump, skip_placeholders=True))
+    total_raw = len(dump.get("icons") or [])
+
+    samples: dict[str, list[float]] = {name: [] for name, _, _, _ in _CALIBRATED}
+    readable = 0
+    for entry in entries:
+        sig = _sig(entry)
+        if not sig or not sig.get("opaque_pixels"):
+            continue
+        readable += 1
+        try:
+            samples["alpha_coverage"].append(float(sig.get("alpha_coverage") or 0.0))
+            samples["plate_ratio"].append(float(sig.get("plate_ratio") or 0.0))
+            samples["luma_span"].append(
+                float(sig.get("luma_p98") or 0.0) - float(sig.get("luma_p02") or 0.0)
+            )
+            samples["edge_density"].append(float(sig.get("edge_density") or 0.0))
+        except (TypeError, ValueError):
+            continue
+
+    metrics = []
+    for name, const_name, value, side in _CALIBRATED:
+        values = samples[name]
+        if side == "below":
+            selected = sum(1 for v in values if v < value)
+        else:
+            selected = sum(1 for v in values if v >= value)
+        metrics.append({
+            "metric": name,
+            "threshold_name": const_name,
+            "threshold": value,
+            "selects": side,
+            "selected": selected,
+            "selected_pct": (selected / len(values)) if values else 0.0,
+            "percentiles": {f"p{p:02d}": _percentile(values, p) for p in _PERCENTILES},
+            "samples": len(values),
+        })
+
+    verdicts = [classify_icon(e) for e in entries]
+    overridden = sum(1 for v in verdicts if v.settings)
+
+    return {
+        "device_model": dump.get("device_model"),
+        "ios_version": dump.get("ios_version"),
+        "icons_in_dump": total_raw,
+        "analysed": len(entries),
+        "readable_artwork": readable,
+        "placeholders_skipped": total_raw - len(entries),
+        "overrides": overridden,
+        "override_rate": (overridden / len(verdicts)) if verdicts else 0.0,
+        "metrics": metrics,
+    }
+
+
+def format_calibration(report: dict[str, Any]) -> str:
+    lines = [
+        f"device        {report.get('device_model') or '?'}"
+        f"  iOS {report.get('ios_version') or '?'}",
+        f"icons         {report['icons_in_dump']} in dump, "
+        f"{report['analysed']} analysed "
+        f"({report['placeholders_skipped']} placeholders skipped), "
+        f"{report['readable_artwork']} with readable artwork",
+        "",
+        f"{'metric':<15}{'threshold':>10} {'selects':>12} "
+        + " ".join(f"{'p%02d' % p:>7}" for p in _PERCENTILES),
+    ]
+    for m in report["metrics"]:
+        pcts = " ".join(f"{m['percentiles'][f'p{p:02d}']:>7.3f}" for p in _PERCENTILES)
+        lines.append(
+            f"{m['metric']:<15}{m['threshold']:>10.3f} "
+            f"{m['selected']:>4} {m['selected_pct']:>6.1%} {pcts}"
+        )
+
+    rate = report["override_rate"]
+    lines.append("")
+    lines.append(f"per-app overrides: {report['overrides']}/{report['analysed']} ({rate:.1%})")
+    # The 189/201 run was 94%. A third is already high enough to be worth a look.
+    if rate > 0.34:
+        lines.append(
+            "  WARNING: overrides are not a small minority — these thresholds do"
+        )
+        lines.append(
+            "  not transfer to this dump. Re-check against a real inventory before"
+        )
+        lines.append("  changing any constant.")
+    return "\n".join(lines)
+
+
 def format_icons(verdicts: list[IconVerdict], limit: int = 0) -> str:
     rows = verdicts[:limit] if limit else verdicts
     lines = []

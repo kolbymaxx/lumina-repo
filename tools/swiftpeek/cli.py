@@ -10,6 +10,7 @@
   python3 -m swiftpeek targets annotated.json
   python3 -m swiftpeek scaffold annotated.json -o ~/Tweaks/MyMusicTweak --name MyMusicTweak
   python3 -m swiftpeek icons SpringBoard_dump.json
+  python3 -m swiftpeek calibration SpringBoard_dump.json
   python3 -m swiftpeek tint-plan SpringBoard_dump.json --mode 4 -o plan.json
 """
 from __future__ import annotations
@@ -28,7 +29,9 @@ from .api import FieldCatalog, PeekSession, annotate_dump, load_dump
 from .icons import (
     MODE_NAMES,
     build_tint_plan,
+    calibration_report,
     classify_icon,
+    format_calibration,
     format_icons,
     iter_icons,
     load_icon_dump,
@@ -194,6 +197,26 @@ def _cmd_icons(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_calibration(args: argparse.Namespace) -> int:
+    if not args.dump.is_file():
+        print(f"missing dump: {args.dump}", file=sys.stderr)
+        return 1
+    dump = load_icon_dump(args.dump)
+    if not (dump.get("icons") or []):
+        print("no `icons` array in this dump — is it a SpringBoard dump with "
+              "iconInventory on?", file=sys.stderr)
+        return 1
+
+    report = calibration_report(dump)
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(format_calibration(report))
+    # Non-zero when the thresholds clearly do not fit this dump, so this is
+    # usable as a check rather than only as a thing to read.
+    return 2 if report["override_rate"] > 0.34 else 0
+
+
 def _cmd_tint_plan(args: argparse.Namespace) -> int:
     if not args.dump.is_file():
         print(f"missing dump: {args.dump}", file=sys.stderr)
@@ -279,6 +302,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-n", "--limit", type=int, default=0, help="0 = no limit")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_cmd_icons)
+
+    p = sub.add_parser(
+        "calibration",
+        help="check the icon thresholds against a dump before trusting them",
+    )
+    p.add_argument("dump", type=Path)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=_cmd_calibration)
 
     p = sub.add_parser("tint-plan", help="emit Glyph per-app settings from an inventory dump")
     p.add_argument("dump", type=Path)
