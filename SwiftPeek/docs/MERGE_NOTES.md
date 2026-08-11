@@ -87,3 +87,34 @@ replace — its header already counted six. `Halo/src/HAPresenter.m`'s `HAWindow
 is a smaller `SPKOverlayWindow`. Both should be deleted in favour of SPKit once
 #59 lands; they were not written against it because SPKit is not on `main` and
 depending on an unmerged branch is worse than the duplication.
+
+## Added after the branch's original scope
+
+Three additions live on this branch that are not part of the icon/SpringBoard
+recon work and should survive any merge order:
+
+| What | Where | Conflict risk |
+|------|-------|---------------|
+| Dependency capability design (anchors / overlay hosting / measurement) | `docs/DEPENDENCY_CAPABILITIES.md` | New file, none |
+| Swift-in-SpringBoard plan (`dlopen`, crash-loop auto-disable, staged targets) | `docs/SPRINGBOARD_SWIFT.md` | New file, none |
+| Catalog provenance | `tools/swiftpeek/api.py`, `test_api.py`, `docs/OFFLINE_MUSIC_FIELDS.md` | **Touches `api.py`, which #59 also edits** |
+
+The `api.py` change is small and self-contained — a `DEFAULT_CATALOG_PROVENANCE`
+constant, a `FieldCatalog.provenance` attribute, and a `"provenance"` key added
+to each `lookup()` result. It resolves alongside #59's edits rather than against
+them; keep both. Four tests cover it in `test_api.py`.
+
+`__version__` is deliberately left at `0.6.0` rather than bumped, since three
+branches already collide there and the resolution is to land at `0.7.0` once.
+
+## Correction to the SpringBoard position stated elsewhere
+
+`SwiftPeek/README.md` on `claude/continue-1-1-21-owif9e` still says SpringBoard
+is "deliberately absent" and goes in "only after the kill switch has been
+exercised for real" on another target. That was written before the 2026-08-10
+device run recorded above, in which 0.4.0 took four SpringBoard dumps on
+iPhone13,1 / 17.3 with no Safe Mode and no respring loop. Whoever merges should
+update that paragraph rather than carrying it forward — it now understates what
+is known, and the open question is narrower than it reads: not "may an ObjC
+build enter SpringBoard" (answered, yes) but "may a **Swift-linked** one"
+(untested), plus 16.7 on either.

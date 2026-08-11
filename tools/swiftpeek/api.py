@@ -8,6 +8,19 @@ from typing import Any, Iterable, Iterator
 from .paths import DEFAULT_CATALOG
 
 
+#: Where the bundled catalog came from. See docs/OFFLINE_MUSIC_FIELDS.md.
+#:
+#: This is not trivia — it is the answer to a failure that cost real builds.
+#: Music27 1.1.36 read `MusicApplication.NowPlayingControlsViewController` out
+#: of this catalog and laid out against `artworkView`, `dismissButton` and
+#: eighteen more named fields. On an iOS 17.3 device the class is
+#: `MusicNowPlayingControlsViewController`, every catalog name came back
+#: `missing`, and a follow-up ivar enumeration returned `count=1` — that one
+#: being `_view`. The catalog was not wrong; it was answering for a different
+#: firmware, and nothing at the point of use said so.
+DEFAULT_CATALOG_PROVENANCE = "iOS 16.7.10 (20H350), iPhone10,3 / iPhone10,6"
+
+
 def load_dump(path: str | Path) -> dict[str, Any]:
     return json.loads(Path(path).read_text())
 
@@ -33,26 +46,38 @@ class FieldCatalog:
         for full in self._full:
             short = full.rsplit(".", 1)[-1]
             self._short.setdefault(short, []).append(full)
+        # A caller-supplied catalog may name its own firmware in a sidecar; the
+        # bundled one is described by the constant above.
+        sidecar = self.path.with_suffix(".provenance")
+        if sidecar.is_file():
+            self.provenance = sidecar.read_text().strip()
+        elif self.path == DEFAULT_CATALOG:
+            self.provenance = DEFAULT_CATALOG_PROVENANCE
+        else:
+            self.provenance = "unknown"
 
     def __len__(self) -> int:
         return len(self._full)
 
     def lookup(self, type_name: str | None, objc: str | None = None) -> dict[str, Any] | None:
+        # Every hit carries where it came from. A consumer reading field names
+        # off this is about to write layout code against them, and that is the
+        # moment it needs to know which firmware answered.
         for cand in (type_name, objc):
             if not cand:
                 continue
             if cand in self._full:
-                return {"key": cand, **self._full[cand]}
+                return {"key": cand, "provenance": self.provenance, **self._full[cand]}
             base = cand.split("<", 1)[0]
             if base in self._full:
-                return {"key": base, **self._full[base]}
+                return {"key": base, "provenance": self.provenance, **self._full[base]}
             short = base.rsplit(".", 1)[-1]
             hits = self._short.get(short) or []
             pref = [h for h in hits if h.startswith("MusicApplication.")]
             chosen = pref or hits
             if chosen:
                 k = chosen[0]
-                return {"key": k, **self._full[k]}
+                return {"key": k, "provenance": self.provenance, **self._full[k]}
         return None
 
     def fields_for(self, type_name: str | None, objc: str | None = None) -> list[dict[str, Any]]:

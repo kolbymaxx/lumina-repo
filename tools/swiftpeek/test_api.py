@@ -51,6 +51,32 @@ class ReadAPITests(unittest.TestCase):
     def test_catalog_nonempty(self):
         self.assertGreater(len(self.catalog), 1000)
 
+    def test_bundled_catalog_names_its_firmware(self):
+        # Music27 1.1.36 laid out against catalog field names that do not exist
+        # on iOS 17.3, because nothing at the point of use said which firmware
+        # the catalog described. It says so now.
+        self.assertIn("16.7", self.catalog.provenance)
+
+    def test_lookup_carries_provenance(self):
+        hit = self.catalog.lookup("MusicApplication.MiniPlayerViewController")
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit["provenance"], self.catalog.provenance)
+
+    def test_foreign_catalog_provenance_is_not_guessed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "other-catalog.json"
+            path.write_text(json.dumps({"Foo.Bar": {"kind": "class", "fields": []}}))
+            cat = FieldCatalog(path)
+            self.assertEqual(cat.provenance, "unknown")
+
+    def test_sidecar_overrides_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "other-catalog.json"
+            path.write_text(json.dumps({"Foo.Bar": {"kind": "class", "fields": []}}))
+            path.with_suffix(".provenance").write_text("iOS 17.3 (21D50), iPhone13,1\n")
+            cat = FieldCatalog(path)
+            self.assertEqual(cat.provenance, "iOS 17.3 (21D50), iPhone13,1")
+
     def test_annotate_matches(self):
         out = annotate_dump(SAMPLE, self.catalog)
         info = out["offline_annotate"]

@@ -14,6 +14,31 @@ Device `view_class_sample` showed custom `MusicApplication.*` UIViews only.
 Field **names/layouts** are still recoverable from the Mach-O without touching
 the live heap.
 
+## This catalog answers for 16.7, and consumers must be told so
+
+**A catalog hit is not a fact about the device in front of you.** It is a fact
+about the firmware the catalog was built from, and treating the two as the same
+thing cost Music27 two builds.
+
+1.1.36 looked up `MusicApplication.NowPlayingControlsViewController` here, found
+`artworkView`, `dismissButton` and eighteen more named fields, and laid out
+against them. On an iOS 17.3 device the class is
+`MusicNowPlayingControlsViewController` — a different name, plain ObjC — and
+every catalog field came back `missing`. The follow-up ivar enumeration returned
+`count=1`, that one being `_view`. Apple had reimplemented the controller
+between firmwares. The catalog was right; the reading of it was wrong.
+
+Two mitigations, so this cannot repeat quietly:
+
+- `FieldCatalog.provenance` names the firmware, and **every `lookup()` result
+  carries it** — the moment a consumer reads field names is the moment it needs
+  to know which OS answered. A caller-supplied catalog can declare its own via a
+  `<catalog>.provenance` sidecar; one that declares nothing reports `unknown`
+  rather than inheriting this file's.
+- The guidance below still stands and is now the rule rather than a preference:
+  on a firmware this catalog does not cover, **take a fresh dump**. If a dump
+  and the catalog disagree, the dump wins.
+
 ## Binary
 
 iOS **16.7.10** (`20H350`) IPSW for iPhone10,3 / iPhone10,6 (same Music build
