@@ -649,21 +649,299 @@ static BOOL SPIsSpringBoard(void) {
     return [bundle isEqualToString:@"com.apple.springboard"];
 }
 
+/// Disk kill switch. Checked before prefs and before anything else runs, so a
+/// target that will not boot far enough to reach Settings can still be shut off
+/// over SSH:  `touch /var/jb/var/mobile/Library/SwiftPeek/DISABLE`
+///
+/// This matters most for SpringBoard — a broken app costs a relaunch, a broken
+/// SpringBoard costs a device you cannot drive.
+static BOOL SPKillSwitchEngaged(void) {
+    static BOOL engaged = NO;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSString *rel = @"/var/mobile/Library/SwiftPeek/DISABLE";
+        NSMutableArray<NSString *> *paths = [NSMutableArray array];
+        NSString *jb = SPJailbreakRootPrefix();
+        if (jb.length) [paths addObject:[jb stringByAppendingString:rel]];
+        [paths addObject:[@"/var/jb" stringByAppendingString:rel]];
+        [paths addObject:rel];
+        for (NSString *p in paths) {
+            if ([[NSFileManager defaultManager] fileExistsAtPath:p]) {
+                engaged = YES;
+                NSLog(@"[SwiftPeek] kill switch present at %@ — refusing to attach", p);
+                return;
+            }
+        }
+    });
+    return engaged;
+}
+
+/// Per-process opt-in. Every target defaults OFF except Music, which is the
+/// only one with a crash-tested field-walk allowlist behind it
+/// (`SPClassNameIsMusicMetaView`). That allowlist does NOT transfer, so a newly
+/// enabled target gets the window/VC tree only until it earns more.
+///
+/// SPRINGBOARD IS IN THE TABLE, AND THAT IS SETTLED BY DEVICE EVIDENCE.
+///
+/// The two branches this file was merged from disagreed about it. The
+/// pref-driven side said SpringBoard was "deliberately absent" until the kill
+/// switch had been exercised on a lower-risk target; the recon side said an
+/// ObjC-only build was a different proposition from the Swift-linked one that
+/// caused the 0.2.1 Safe Mode. The recon side is right, and not as an argument:
+/// on 2026-08-10, 0.4.0 took four SpringBoard dumps on iPhone13,1 / iOS 17.3
+/// with `targetSpringBoard` + `sbScanWindows` + `iconInventory` all on — no
+/// Safe Mode, no respring loop.
+///
+/// Two caveats stay on the record: one device, one firmware, and 16.7 untried.
+/// SpringBoard therefore keeps a second gate (`sbScanWindows`) that no other
+/// target has, and `dumpFieldMeta` is forced off there regardless of pref.
 static BOOL SPIsAllowedProcess(void) {
+    if (SPKillSwitchEngaged()) return NO;
+
     NSString *name = NSProcessInfo.processInfo.processName ?: @"";
     NSString *bundle = NSBundle.mainBundle.bundleIdentifier ?: @"";
-    if ([name isEqualToString:@"Music"]) return YES;
-    if ([bundle isEqualToString:@"com.apple.Music"]) return YES;
-    // 0.4.0: SpringBoard is allowed again, but only for the icon inventory and
-    // only when the user has explicitly opted in. 0.2.1 put SpringBoard into
-    // Safe Mode with a Swift-linked dylib doing window scans; the way back in is
-    // an ObjC-only build that installs no hooks, walks no view tree, and reads
-    // icons through UIKit rather than SBIconModel.
-    if (SPIsSpringBoard()) return SPPrefBool(@"targetSpringBoard", NO);
+
+    // name, bundle id, pref key, default
+    NSArray<NSArray *> *targets = @[
+        @[ @"Music",           @"com.apple.Music",           @"targetMusic",      @YES ],
+        @[ @"Podcasts",        @"com.apple.podcasts",        @"targetPodcasts",   @NO  ],
+        @[ @"TV",              @"com.apple.tv",              @"targetTV",         @NO  ],
+        @[ @"Preferences",     @"com.apple.Preferences",     @"targetSettings",   @NO  ],
+        @[ @"SiriViewService", @"com.apple.SiriViewService", @"targetSiriView",   @NO  ],
+        @[ @"assistantd",      @"com.apple.assistantd",      @"targetAssistantd", @NO  ],
+        // One more row rather than a special case. The key name is unchanged so
+        // SPIconPeek's own gate still reads the same pref.
+        @[ @"SpringBoard",     @"com.apple.springboard",     @"targetSpringBoard", @NO ],
+    ];
+
+    for (NSArray *t in targets) {
+        BOOL matches = [name isEqualToString:t[0]] || [bundle isEqualToString:t[1]];
+        if (!matches) continue;
+        return SPPrefBool(t[2], [t[3] boolValue]);
+    }
+
+    // Never attach to a process we have not explicitly reasoned about, even if
+    // the MobileSubstrate filter somehow loads us there.
     return NO;
 }
 
 static BOOL gSPDyldWatchInstalled = NO;
+
+#pragma mark - Window tree (0.4.0)
+
+/// Read-only snapshot of every UIWindow in the process, ordered the way the
+/// compositor stacks them (ascending windowLevel).
+///
+/// This is deliberately the safest thing SwiftPeek does: plain property reads,
+/// no field walking, no Swift metadata. It exists because Music27 burned four
+/// device cycles guessing at window level and opacity with no way to see
+/// either. `level`, `hidden`, `alpha`, `background` and `opaque` together
+/// explain both failure modes we hit — a window that paints over the app, and
+/// a window that never composites at all.
+///
+/// Each window also carries a shallow view subtree (`views`), because knowing
+/// the overlay window is correct is only half an answer: an overlay that exists
+/// at the right level with the right frame can still show nothing if the view
+/// inside it is zero-sized, transparent or hidden. Depth- and breadth-capped so
+/// this stays a bounded walk, never a full hierarchy dump.
+static NSString *SPColorDescription(UIColor *color) {
+    if (!color) return @"nil";
+    CGFloat r = 0, g = 0, b = 0, a = 0;
+    if ([color getRed:&r green:&g blue:&b alpha:&a]) {
+        if (a < 0.001) return @"clear";
+        return [NSString stringWithFormat:@"rgba(%.2f,%.2f,%.2f,%.2f)", r, g, b, a];
+    }
+    CGFloat w = 0;
+    if ([color getWhite:&w alpha:&a]) {
+        if (a < 0.001) return @"clear";
+        return [NSString stringWithFormat:@"white(%.2f,a=%.2f)", w, a];
+    }
+    return color.description ?: @"?";
+}
+
+static NSString *SPRectString(CGRect r) {
+    return [NSString stringWithFormat:@"{%.0f,%.0f,%.0f,%.0f}",
+            r.origin.x, r.origin.y, r.size.width, r.size.height];
+}
+
+static NSString *SPCGColorDescription(CGColorRef cg) {
+    if (!cg) return @"nil";
+    return SPColorDescription([UIColor colorWithCGColor:cg]);
+}
+
+/// Colour that lives on the layer rather than on the view.
+///
+/// THE VIEW WALK ANSWERS "WHAT IS THERE", NOT "WHAT COLOUR IS IT".
+///
+/// Music's full-screen player derives its whole background from the artwork —
+/// warm brown behind a gold cover, periwinkle behind a grey one, transport
+/// glyphs tinted to match. A tweak trying to reproduce that wants to read the
+/// colour Apple already computed rather than derive a worse one from the same
+/// image. But `view.backgroundColor` is nil for it: the offline catalog lists
+/// `gradientLayer` and `destOverLayer` on `MusicApplication.PaletteContainerView`,
+/// so the colour is in a `CAGradientLayer`, and a walk that reads only views
+/// reports nothing and looks like a dead end rather than a blind spot.
+///
+/// Still the safest thing here: plain `CALayer` property reads. No field
+/// walking, no Swift metadata, nothing forced to load, and bounded to the
+/// view's own layer plus its immediate sublayers.
+static void SPAppendLayerColors(UIView *view, NSMutableDictionary *node) {
+    CALayer *layer = view.layer;
+    if (!layer) return;
+
+    // A layer background with no view background is exactly the case that used
+    // to vanish from these dumps.
+    if (!view.backgroundColor && layer.backgroundColor) {
+        NSString *lbg = SPCGColorDescription(layer.backgroundColor);
+        if (![lbg isEqualToString:@"clear"] && ![lbg isEqualToString:@"nil"]) {
+            node[@"layer_background"] = lbg;
+        }
+    }
+
+    NSMutableArray<CALayer *> *candidates = [NSMutableArray arrayWithObject:layer];
+    NSInteger seen = 0;
+    for (CALayer *sub in layer.sublayers) {
+        if (seen++ >= 6) break;
+        [candidates addObject:sub];
+    }
+
+    for (CALayer *candidate in candidates) {
+        if (![candidate isKindOfClass:CAGradientLayer.class]) continue;
+        CAGradientLayer *gradient = (CAGradientLayer *)candidate;
+        NSMutableArray<NSString *> *stops = [NSMutableArray array];
+        for (id entry in gradient.colors) {
+            if (stops.count >= 4) break;
+            if (CFGetTypeID((__bridge CFTypeRef)entry) != CGColorGetTypeID()) continue;
+            [stops addObject:SPCGColorDescription((__bridge CGColorRef)entry)];
+        }
+        if (stops.count == 0) continue;
+        node[@"gradient"] = [stops componentsJoinedByString:@" "];
+        node[@"gradient_layer"] = @(object_getClassName(gradient) ?: "?");
+        break;  // the first one identifies the carrier; that is the question
+    }
+}
+
+static const NSInteger kSPViewTreeMaxDepth = 3;
+static const NSInteger kSPViewTreeMaxNodes = 48;
+static const NSInteger kSPViewTreeMaxSiblings = 12;
+
+/// Shallow view walk under a window. Class name, geometry and the handful of
+/// properties that decide whether something is on screen at all. No field
+/// walking, no Swift metadata, no forcing of lazily-loaded views.
+static void SPAppendViewTree(UIView *view, NSInteger depth,
+                             NSMutableArray<NSDictionary *> *out) {
+    if (!view || out.count >= kSPViewTreeMaxNodes) return;
+
+    CGRect f = view.frame;
+    NSMutableDictionary *node = [@{
+        @"depth": @(depth),
+        @"class": @(object_getClassName(view) ?: "?"),
+        @"frame": SPRectString(f),
+        @"hidden": @(view.hidden),
+        @"alpha": @((double)view.alpha),
+        @"subviews": @(view.subviews.count),
+    } mutableCopy];
+
+    // Only record a background when it would actually paint — keeps the common
+    // case terse and makes an unexpected opaque fill jump out.
+    NSString *bg = SPColorDescription(view.backgroundColor);
+    if (![bg isEqualToString:@"clear"] && ![bg isEqualToString:@"nil"]) {
+        node[@"background"] = bg;
+    }
+    SPAppendLayerColors(view, node);
+    // The three ways a view is present but invisible.
+    if (view.hidden || view.alpha < 0.01 ||
+        CGRectIsEmpty(f) || f.size.width < 1.0 || f.size.height < 1.0) {
+        node[@"invisible"] = @YES;
+    }
+    if (view.tag != 0) {
+        // Tweaks tag their views; 'M27D' etc. read better as FourCC.
+        node[@"tag"] = @(view.tag);
+    }
+    [out addObject:node];
+
+    if (depth >= kSPViewTreeMaxDepth) return;
+    NSInteger siblings = 0;
+    for (UIView *sub in view.subviews) {
+        if (siblings++ >= kSPViewTreeMaxSiblings) break;
+        if (out.count >= kSPViewTreeMaxNodes) break;
+        SPAppendViewTree(sub, depth + 1, out);
+    }
+}
+
+static NSArray<NSDictionary *> *SPCollectWindowTree(void) {
+    NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
+    @try {
+        NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
+
+        // Prefer per-scene enumeration so we can label which scene each window
+        // belongs to; fall back to the deprecated flat list pre-iOS 13.
+        if (@available(iOS 13.0, *)) {
+            for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+                if (![scene isKindOfClass:UIWindowScene.class]) continue;
+                for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+                    if (![windows containsObject:w]) [windows addObject:w];
+                }
+            }
+        }
+        for (UIWindow *w in UIApplication.sharedApplication.windows) {
+            if (![windows containsObject:w]) [windows addObject:w];
+        }
+
+        [windows sortUsingComparator:^NSComparisonResult(UIWindow *a, UIWindow *b) {
+            if (a.windowLevel < b.windowLevel) return NSOrderedAscending;
+            if (a.windowLevel > b.windowLevel) return NSOrderedDescending;
+            return NSOrderedSame;
+        }];
+
+        NSInteger budget = 40;
+        for (UIWindow *w in windows) {
+            if (budget-- <= 0) break;
+            UIViewController *root = w.rootViewController;
+            NSMutableDictionary *entry = [@{
+                @"class": @(object_getClassName(w) ?: "?"),
+                @"level": @((double)w.windowLevel),
+                @"frame": SPRectString(w.frame),
+                @"hidden": @(w.hidden),
+                @"opaque": @(w.opaque),
+                @"alpha": @((double)w.alpha),
+                @"is_key": @(w.isKeyWindow),
+                @"background": SPColorDescription(w.backgroundColor),
+                @"user_interaction": @(w.userInteractionEnabled),
+                @"subviews": @(w.subviews.count),
+                @"addr": [NSString stringWithFormat:@"0x%lx",
+                          (unsigned long)(uintptr_t)(__bridge void *)w],
+            } mutableCopy];
+
+            entry[@"root_vc"] = root ? @(object_getClassName(root) ?: "?") : @"nil";
+            // A root VC whose view is not loaded is a window that will never
+            // paint — worth distinguishing from one that simply has no root.
+            entry[@"root_view_loaded"] = @(root ? root.isViewLoaded : NO);
+
+            if (@available(iOS 13.0, *)) {
+                UIWindowScene *ws = w.windowScene;
+                entry[@"scene"] = ws ? (ws.session.persistentIdentifier ?: @"?") : @"nil";
+                entry[@"scene_active"] =
+                    @(ws ? (ws.activationState == UISceneActivationStateForegroundActive) : NO);
+            }
+
+            // Never touch root.view when the view is not loaded — forcing it to
+            // load is a mutation, and doing that to Music blanked Library once.
+            if (SPPrefBool(@"dumpWindowViews", YES)) {
+                NSMutableArray<NSDictionary *> *views = [NSMutableArray array];
+                for (UIView *sub in w.subviews) {
+                    if (views.count >= kSPViewTreeMaxNodes) break;
+                    SPAppendViewTree(sub, 0, views);
+                }
+                if (views.count) entry[@"views"] = views;
+            }
+            [out addObject:entry];
+        }
+    } @catch (__unused id e) {
+        return @[];
+    }
+    return out;
+}
 
 /// Lightweight, hook-free attach: walk already-loaded VC tree only.
 /// Never force `vc.view` (that blanked Music Library content) and never
@@ -786,8 +1064,31 @@ static void SPScanWindowsForHosts(void) {
             }
         }
 
+        // Main-thread only — UIWindow property reads must not go off-main.
+        // Collected before the early return below: "no interesting controllers"
+        // is exactly the case where the window list is the whole story.
+        NSArray<NSDictionary *> *windowTree =
+            SPPrefBool(@"dumpWindows", YES) ? SPCollectWindowTree() : @[];
+
         if (captured.count == 0) {
-            SPWriteHeartbeat(@"window scan found no interesting controllers", NO, @[], @[]);
+            NSString *msg = [NSString stringWithFormat:
+                @"window scan found no interesting controllers (windows=%lu)",
+                (unsigned long)windowTree.count];
+            if (windowTree.count) {
+                // Still worth a dump — the window list alone explains a tweak
+                // overlay that is missing, hidden, or painting over the app.
+                dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                    SPWriteJSONDump(@{
+                        @"milestone": @1,
+                        @"scan": @YES,
+                        @"message": msg,
+                        @"nodes": @[],
+                        @"hosts_found": @0,
+                        @"windows": windowTree,
+                    });
+                });
+            }
+            SPWriteHeartbeat(msg, NO, @[], @[]);
             return;
         }
 
@@ -843,10 +1144,11 @@ static void SPScanWindowsForHosts(void) {
             }
 
             NSString *msg = [NSString stringWithFormat:
-                @"window scan nodes=%lu milestone=%ld screen=%d meta=%d hosts=%ld tried=%ld hit=%ld",
+                @"window scan nodes=%lu milestone=%ld screen=%d meta=%d hosts=%ld tried=%ld hit=%ld windows=%lu",
                 (unsigned long)nodes.count, (long)milestone,
                 enrichScreen ? 1 : 0, enrichMeta ? 1 : 0,
-                (long)hostsCopy, (long)metaTried, (long)metaHit];
+                (long)hostsCopy, (long)metaTried, (long)metaHit,
+                (unsigned long)windowTree.count];
             NSMutableDictionary *payload = [@{
                 @"milestone": @(milestone),
                 @"scan": @YES,
@@ -854,6 +1156,7 @@ static void SPScanWindowsForHosts(void) {
                 @"nodes": nodes,
                 @"hosts_found": @(hostsCopy),
             } mutableCopy];
+            if (windowTree.count) payload[@"windows"] = windowTree;
             // Class sample only — no FOVO. Safe when hosts=0 on Music 16.7.
             if (enrichMeta && hostsCopy == 0 && sampleCopy.count) {
                 payload[@"view_class_sample"] = sampleCopy;
@@ -912,7 +1215,7 @@ static void SPStartIfEnabled(void) {
         // is what resolves Glyph's PENDING DUMP surface rows.
         if (!SPPrefBool(@"enabled", NO) || !SPPrefBool(@"targetSpringBoard", NO)) return;
         BOOL sbScan = SPPrefBool(@"sbScanWindows", NO);
-        NSLog(@"[SwiftPeek] SpringBoard recon mode (0.4.0) iconInventory=%d sbScanWindows=%d",
+        NSLog(@"[SwiftPeek] SpringBoard recon mode (0.5.0) iconInventory=%d sbScanWindows=%d",
               SPPrefBool(@"iconInventory", NO) ? 1 : 0, sbScan ? 1 : 0);
         SPRunIconInventory(@"launch");
 
@@ -954,7 +1257,8 @@ static void SPStartIfEnabled(void) {
     dispatch_once(&launchOnce, ^{
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
             NSString *msg = [NSString stringWithFormat:
-                @"Music launch probe (0.3.6) scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
+                @"%@ launch probe (0.5.0) scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
+                NSProcessInfo.processInfo.processName ?: @"?",
                 scanOn ? 1 : 0, hooksOn ? 1 : 0, fieldsOn ? 1 : 0, metaOn ? 1 : 0];
             SPWriteHeartbeat(msg, NO, @[], @[]);
             SPWriteJSONDump(@{

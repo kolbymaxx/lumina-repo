@@ -22,6 +22,17 @@ typedef NS_ENUM(NSInteger, M27DockMode) {
 - (NSInteger)numberOfTabsForFloatingDock:(M27FloatingDock *)dock;
 - (nullable UIImage *)floatingDock:(M27FloatingDock *)dock iconForTabIndex:(NSInteger)index selected:(BOOL)selected;
 - (nullable NSString *)floatingDock:(M27FloatingDock *)dock titleForTabIndex:(NSInteger)index;
+
+/// Should a touch at `point` (dock coordinates) be declined so it reaches the
+/// app underneath instead?
+///
+/// Opening the full player is the one thing the dock cannot do for itself: the
+/// mini player has no button that expands it, and three builds proved that
+/// firing "some control" just picks a different wrong one. But Music's own mini
+/// player is still sitting under the pill, hidden with `layer.opacity = 0` —
+/// invisible and fully hit-testable. Declining the touch lets Music open the
+/// player natively, with its real animation and lyrics screen.
+- (BOOL)floatingDock:(M27FloatingDock *)dock shouldPassThroughPoint:(CGPoint)point;
 @end
 
 /// iOS 27-style floating Music dock with Liquid Glass chrome.
@@ -34,6 +45,10 @@ typedef NS_ENUM(NSInteger, M27DockMode) {
 @property (nonatomic, copy, nullable) NSString *trackTitle;
 @property (nonatomic, copy, nullable) NSString *artistName;
 @property (nonatomic, assign) BOOL playing;
+/// NO when there is genuinely nothing to show — the mini pill is dropped and the
+/// dock becomes just the tab row, as it is on iOS 27 before you play anything.
+/// Defaults NO so a freshly built dock never flashes a placeholder pill.
+@property (nonatomic, assign) BOOL hasTrack;
 
 /// Preferred height for the current mode (excludes external bottom safe-area
 /// padding the host may add below the dock).

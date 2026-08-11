@@ -1,6 +1,9 @@
 TARGET := iphone:clang:latest:15.0
 ARCHS = arm64 arm64e
-INSTALL_TARGET_PROCESSES = Music SpringBoard
+# Union of both branches. Injection into a process is not the same as running
+# there: every target is gated by a pref that defaults off, and SpringBoard
+# needs two (see SPAttach.m).
+INSTALL_TARGET_PROCESSES = Music Podcasts TV SpringBoard
 # Default rootless; CI / local builds override with THEOS_PACKAGE_SCHEME=roothide
 THEOS_PACKAGE_SCHEME ?= rootless
 

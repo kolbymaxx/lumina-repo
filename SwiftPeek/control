@@ -1,9 +1,9 @@
 Package: com.kolby.swiftpeek
 Name: SwiftPeek
 Depends: mobilesubstrate, preferenceloader
-Version: 0.4.0
+Version: 0.5.0
 Architecture: iphoneos-arm64
-Description: Read-only SwiftUI inspector. 0.4.0 adds an opt-in SpringBoard recon mode: icon inventory with pixel signatures plus a hook-free hosting-view scan, for resolving Glyph's themable-surface rows. No hooks, no FOVO, defaults off. Debug tooling; not published.
+Description: Read-only SwiftUI + window-tree inspector. 0.5.0 merges the window/view-tree dumps and pref-driven per-process targets with the SpringBoard recon mode (icon inventory, pixel signatures, hook-free hosting-view scan), and reports layer-level colour so an artwork-derived background can be located. No hooks, no FOVO, every target defaults off. Debug tooling; not published.
 Maintainer: ma6x9x
 Author: ma6x9x
 Section: Tweaks

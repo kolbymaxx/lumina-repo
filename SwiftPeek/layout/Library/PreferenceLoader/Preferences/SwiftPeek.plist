@@ -17,7 +17,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>0.4.0: Enable + Scan Windows + Dump Fields (proven, Music). Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit Music after changes.</string>
+			<string>0.5.0: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background, and layer/gradient colour), a depth-3 view subtree per window, plus the SwiftUI host tree. SpringBoard needs its own two switches below. Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit the target app after changing anything.</string>
 			<key>label</key>
 			<string>SwiftPeek</string>
 		</dict>
@@ -35,6 +35,117 @@
 			<key>label</key>
 			<string>Enable SwiftPeek</string>
 		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Which processes SwiftPeek may attach to. Everything except Music is off by default. Only Music has a crash-tested allowlist behind the deeper walks — a newly enabled target gets the window and controller trees only.</string>
+			<key>label</key>
+			<string>Targets</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>targetMusic</string>
+			<key>label</key>
+			<string>Music</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>targetPodcasts</string>
+			<key>label</key>
+			<string>Podcasts</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>targetTV</string>
+			<key>label</key>
+			<string>TV</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>targetSettings</string>
+			<key>label</key>
+			<string>Settings</string>
+		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>System processes. These are not apps — you cannot force-quit them to recover. If one stops behaving, disable it over SSH with: touch /var/jb/var/mobile/Library/SwiftPeek/DISABLE — SwiftPeek checks for that file before anything else runs. SpringBoard is deliberately not offered yet.</string>
+			<key>label</key>
+			<string>System (Siri)</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>targetSiriView</string>
+			<key>label</key>
+			<string>SiriViewService</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>targetAssistantd</string>
+			<key>label</key>
+			<string>assistantd</string>
+		</dict>
+
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>What to collect. Window Tree and Scan Windows are pure property reads and are safe. Dump Field Meta and Install Hooks walk Swift memory — both have crashed Music before. Leave them off unless you are chasing something specific.</string>
+			<key>label</key>
+			<string>Collection</string>
+		</dict>
 		<dict>
 			<key>PostNotification</key>
 			<string>com.kolby.swiftpeek/prefschanged</string>
@@ -48,6 +159,34 @@
 			<string>scanWindows</string>
 			<key>label</key>
 			<string>Scan Windows (attach)</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>dumpWindows</string>
+			<key>label</key>
+			<string>Window Tree (level / frame / alpha)</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>dumpWindowViews</string>
+			<key>label</key>
+			<string>Window View Subtree (depth 3)</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -75,7 +214,7 @@
 			<key>key</key>
 			<string>dumpFieldMeta</string>
 			<key>label</key>
-			<string>Dump Field Meta (leave off)</string>
+			<string>Dump Field Meta (unsafe)</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -89,7 +228,7 @@
 			<key>key</key>
 			<string>installHooks</string>
 			<key>label</key>
-			<string>Install Hooks (unsafe — leave off)</string>
+			<string>Install Hooks (unsafe)</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>

@@ -1,5 +1,18 @@
 # SwiftPeek — concurrent branch reconciliation
 
+> **RESOLVED 2026-08-11.** PR #59 merged to `main` as `c57d2aa`, then `main` was
+> merged into this branch and the conflicts settled as recommended below. The
+> result is **SwiftPeek 0.5.0** and **`tools/swiftpeek` 0.7.0**. This file is
+> kept as the record of why each side won, not as a pending decision.
+>
+> | Conflict | Resolution |
+> |---|---|
+> | `SPAttach.m` target gate | Kept #59's pref-driven table; SpringBoard added as one more row, keeping the `targetSpringBoard` key so `SPIconPeek`'s gate still reads it |
+> | "SpringBoard is deliberately absent" | **Deleted.** It predates the 2026-08-10 device run and understated what is known. `sbScanWindows` stays as SpringBoard's second gate and `dumpFieldMeta` is still forced off there |
+> | `Makefile` / filter plists | Union of both target lists — injection is not execution, every target is pref-gated off |
+> | `control`, `SPDumpWriter` version | 0.5.0 |
+> | `tools/swiftpeek` | 0.7.0, all three feature sets kept |
+
 Three branches changed SwiftPeek at the same time, from three different agents.
 Two of them disagree about something substantive, so this is written down rather
 than resolved silently by whoever merges last.

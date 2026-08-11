@@ -5,6 +5,7 @@
   python3 -m swiftpeek summary annotated.json
   python3 -m swiftpeek types annotated.json
   python3 -m swiftpeek strings annotated.json
+  python3 -m swiftpeek windows annotated.json --views
   python3 -m swiftpeek fields annotated.json MiniPlayer
   python3 -m swiftpeek find annotated.json artwork
   python3 -m swiftpeek targets annotated.json
@@ -65,6 +66,21 @@ def _session(args: argparse.Namespace) -> PeekSession:
     return PeekSession(args.dump, FieldCatalog(args.catalog), annotate=True)
 
 
+def _cmd_windows(args: argparse.Namespace) -> int:
+    sess = _session(args)
+    rows = sess.windows_table(views=getattr(args, "views", False))
+    if not rows:
+        print(
+            "no window data in this dump "
+            "(needs SwiftPeek 0.4.0+ with Window Tree enabled)",
+            file=sys.stderr,
+        )
+        return 1
+    for line in rows:
+        print(line)
+    return 0
+
+
 def _cmd_summary(args: argparse.Namespace) -> int:
     s = _session(args).summary()
     for k in (
@@ -72,6 +88,7 @@ def _cmd_summary(args: argparse.Namespace) -> int:
         "milestone",
         "message",
         "nodes",
+        "windows",
         "matched_nodes",
         "catalog_types",
         "with_fields",
@@ -82,6 +99,7 @@ def _cmd_summary(args: argparse.Namespace) -> int:
             "milestone": "milestone",
             "message": "message",
             "nodes": "nodes",
+            "windows": "windows",
             "matched_nodes": "offline",
             "catalog_types": "catalog",
             "with_fields": "with_fields",
@@ -257,6 +275,15 @@ def main(argv: list[str] | None = None) -> int:
         p = sub.add_parser(name, help=help_)
         p.add_argument("dump", type=Path)
         p.set_defaults(func=fn)
+
+    p = sub.add_parser("windows", help="list UIWindows by level (0.4.0+)")
+    p.add_argument("dump", type=Path)
+    p.add_argument(
+        "--views",
+        action="store_true",
+        help="also print each window's view subtree (0.4.1+)",
+    )
+    p.set_defaults(func=_cmd_windows)
 
     p = sub.add_parser("fields", help="show offline fields for type substring")
     p.add_argument("dump", type=Path)

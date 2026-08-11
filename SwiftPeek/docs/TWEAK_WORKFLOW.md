@@ -4,9 +4,14 @@ Turn a **0.3.6** Music dump into a starter Theos project without live FOVO.
 
 ## Device (once)
 
+**Prefer the iOS 17 Dopamine device** for Music27 dock work — stock Music already
+floats the mini-player there, and the offline `field-catalog.json` in-tree is from
+16.7.10 (MediaCoreUI companions matter more on 17.x).
+
 1. SwiftPeek prefs: Enable + Scan Windows + Dump Fields **on**; Field Meta **off**; Hooks **off**.
-2. Open Music, visit Library / Search / Now Playing / MiniPlayer.
+2. Open Music, visit Library / Search / Now Playing / MiniPlayer (and scroll Library so the floating mini is on screen).
 3. Pull the dump JSON off the phone (Filza → Mac `~/Downloads/`).
+4. Note the iOS version in the dump header / `UIDevice` field SwiftPeek records.
 
 ## Host (Mac / this repo)
 
@@ -28,6 +33,15 @@ PYTHONPATH=tools python3 -m swiftpeek scaffold ~/Downloads/annotated.json \
   --filter MiniPlayer
 ```
 
+For dock chrome specifically, also query:
+
+```bash
+PYTHONPATH=tools python3 -m swiftpeek fields ~/Downloads/annotated.json MiniPlayer
+PYTHONPATH=tools python3 -m swiftpeek fields ~/Downloads/annotated.json TabBar
+PYTHONPATH=tools python3 -m swiftpeek find ~/Downloads/annotated.json tabsViewController
+PYTHONPATH=tools python3 -m swiftpeek find ~/Downloads/annotated.json miniPlayer
+```
+
 ## What you get
 
 | File | Purpose |
@@ -41,7 +55,7 @@ PYTHONPATH=tools python3 -m swiftpeek scaffold ~/Downloads/annotated.json \
 ```bash
 cd ~/Tweaks/MyMusicTweak
 make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
-# install deb on Dopamine / iPhone X, force-quit Music
+# install deb on Dopamine iOS 17 (primary) or iOS 16, force-quit Music
 ```
 
 ## Developing the tweak
@@ -56,6 +70,7 @@ make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
 
 3. Do **not** enable SwiftPeek Dump Field Meta on device.
 4. Keep the filter Music-only (`com.apple.Music`).
+5. Music27 safety: **never** fade/hide `MiniPlayerViewController` / Library / UIHosting hosts; cover stock chrome from a dedicated overlay window instead.
 
 ## Safety (do not regress)
 

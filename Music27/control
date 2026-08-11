@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.14
+Version: 1.1.55
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.14 floats the glass dock with safeBottom+12 and soft-hides stock tab/mini chrome (alpha only).
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.55: corrects 1.1.54 — the album page has no download button of its own, so scoping the lookup to the page discarded the only one there is. The nav bar's control is mirrored and fired through its bar button item's action, hidden before the header gate, and restored on the way out.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks
