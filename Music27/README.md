@@ -100,6 +100,17 @@ with no feedback; the reference is interactive — the content tracks the finger
 and settles. That means a pan driving a translation on the pill's content, a
 threshold on release, and a snap-back when the threshold is not met.
 
+**It is a carousel, not a crossfade.** Four reference frames one second apart
+(iOS 26/27, 2:21 → 2:22) catch the transition mid-flight: *HISS · Megan Thee
+Stallion* slides out to the left, with only "…Stallion" still visible at the
+left edge, while *To Summer, From Cole · Summer Walker & J. Cole* enters from
+the right, clipped to "To Su… / Summ" and then "To Summer / Summer Wal" before
+it settles. The artwork moves with its own titles as one unit, and both tracks
+are on screen simultaneously, clipped by the pill. So the implementation is two
+content stacks translating together inside a clipping pill — not one stack
+whose text is swapped at the end of the gesture, which is what a naive version
+produces and which reads completely differently.
+
 **Watch for:** a horizontal pan on the pill must not fight the scroll-collapse
 logic (which watches vertical scrolling), and the collapsed centre capsule is
 only ~52pt tall, so the recogniser needs a direction bias rather than claiming
