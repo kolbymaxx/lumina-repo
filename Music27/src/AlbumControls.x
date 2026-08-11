@@ -312,6 +312,83 @@ static UIImage *M27SnapshotStockGlyph(UIView *stock) {
     return shot;
 }
 
+/// Strip the colour out of a mirrored glyph, keeping its shape and its shading.
+///
+/// "Our new black and white download logo appears for a second and then
+/// disappears, then it just does the original red one." Both halves of that are
+/// exactly right: the button starts as our own `arrow.down` in `labelColor`, and
+/// the first mirror tick replaces it with a photograph of Apple's red control.
+///
+/// The obvious fix — draw our own ring and animate it — means inventing a state
+/// machine (idle / downloading / done) and a progress source, and every
+/// language-independent signal for those is a guess. The mirror already knows
+/// all of it, correctly, in every language, including states Apple has not
+/// shipped yet. What is wrong with it is only the colour.
+///
+/// So: convert to luminance and keep alpha. Red ring becomes mid grey, the pale
+/// unfilled track stays pale, the glyph keeps its shape, and the progress
+/// animation survives intact because this runs on every frame the mirror takes.
+/// In dark mode the luminance is inverted so the glyph reads light on dark.
+///
+/// A template image would be simpler and wrong: templates use alpha only, so the
+/// ring's unfilled track — opaque grey, alpha 1 — would flood to solid black and
+/// the progress would become invisible at every percentage.
+static UIImage *M27MonochromeGlyph(UIImage *source, BOOL dark) {
+    if (!source) return nil;
+    CGImageRef cg = source.CGImage;
+    if (!cg) return source;
+
+    size_t w = CGImageGetWidth(cg);
+    size_t h = CGImageGetHeight(cg);
+    if (w == 0 || h == 0 || w > 512 || h > 512) return source;
+
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    if (!space) return source;
+    size_t stride = w * 4;
+    uint8_t *pixels = calloc(h, stride);
+    if (!pixels) {
+        CGColorSpaceRelease(space);
+        return source;
+    }
+
+    UIImage *result = source;
+    CGContextRef ctx = CGBitmapContextCreate(pixels, w, h, 8, stride, space,
+                                             kCGImageAlphaPremultipliedLast |
+                                             kCGBitmapByteOrder32Big);
+    if (ctx) {
+        CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), cg);
+        for (size_t i = 0; i < h * stride; i += 4) {
+            uint8_t a = pixels[i + 3];
+            if (a == 0) continue;
+            // Un-premultiply before measuring luminance, or a semi-transparent
+            // pixel reads darker than it looks and the ring's antialiased edge
+            // comes out muddy.
+            float inv = 255.0f / (float)a;
+            float r = (float)pixels[i + 0] * inv;
+            float g = (float)pixels[i + 1] * inv;
+            float b = (float)pixels[i + 2] * inv;
+            float luma = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+            if (luma > 255.0f) luma = 255.0f;
+            if (dark) luma = 255.0f - luma;
+            uint8_t v = (uint8_t)((luma * (float)a) / 255.0f + 0.5f);  // re-premultiply
+            pixels[i + 0] = v;
+            pixels[i + 1] = v;
+            pixels[i + 2] = v;
+        }
+        CGImageRef out = CGBitmapContextCreateImage(ctx);
+        if (out) {
+            result = [UIImage imageWithCGImage:out
+                                         scale:source.scale
+                                   orientation:source.imageOrientation];
+            CGImageRelease(out);
+        }
+        CGContextRelease(ctx);
+    }
+    free(pixels);
+    CGColorSpaceRelease(space);
+    return result;
+}
+
 /// Returns YES when the state changed, so callers log only real transitions.
 - (BOOL)mirrorDownloadState {
     UIView *stock = self.stockDownload;
@@ -334,9 +411,15 @@ static UIImage *M27SnapshotStockGlyph(UIView *stock) {
     UIImage *shot = M27SnapshotStockGlyph(stock);
     if (!shot) return NO;
 
-    // Original rendering mode, not template — the red of the stop ring is part
-    // of what the state means.
-    [self.downloadButton setImage:[shot imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal]
+    BOOL dark = NO;
+    if (@available(iOS 13.0, *)) {
+        dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+    }
+    UIImage *mono = M27MonochromeGlyph(shot, dark);
+
+    // Original rendering mode, not template — the mono conversion has already
+    // put the shading where it belongs, and a template would flatten it back.
+    [self.downloadButton setImage:[mono imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal]
                          forState:UIControlStateNormal];
     self.downloadButton.accessibilityLabel = stock.accessibilityLabel;
     self.lastDownloadLabel = label;
@@ -586,6 +669,79 @@ static void M27RetryAlbumInstall(UIViewController *vc) {
     [NSRunLoop.mainRunLoop addTimer:timer forMode:NSRunLoopCommonModes];
 }
 
+/// Measure the album detail page, once per opening.
+///
+/// Two open requests need this and neither can be answered by guessing.
+///
+/// **Full-bleed artwork.** iOS 26/27 runs the cover edge to edge under the nav
+/// bar; iOS 17 shows a small centred square. To resize Music's own artwork view —
+/// which it must be, because iOS 17+ covers can be animated and a snapshot would
+/// freeze them — the view has to be identified first. The only thing known about
+/// this page so far is `DetailHeader.DetailsView`, the container holding the
+/// title and buttons, and the artwork is not in it.
+///
+/// **Colour matching.** The wash already exists behind *Artwork Color Theme*,
+/// and it goes in at layer index 0 with zPosition -1000. If Music's own content
+/// paints an opaque background over it, it has never been visible no matter what
+/// the pref said — so every row records whether it is opaque, which settles that
+/// without another build.
+///
+/// Read-only: class, frame, opacity, and image dimensions. No ivar reads.
+static void M27ReportAlbumTree(UIViewController *vc) {
+    if (!vc.isViewLoaded || !vc.view) return;
+
+    NSMutableArray<NSString *> *rows = [NSMutableArray array];
+    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:vc.view];
+    NSMutableArray<NSNumber *> *depths = [NSMutableArray arrayWithObject:@0];
+
+    while (queue.count > 0 && rows.count < 70) {
+        UIView *view = queue.firstObject;
+        NSInteger depth = depths.firstObject.integerValue;
+        [queue removeObjectAtIndex:0];
+        [depths removeObjectAtIndex:0];
+
+        CGRect f = [view convertRect:view.bounds toView:vc.view];
+        if (f.size.width >= 8.0 && f.size.height >= 8.0 && !view.hidden && view.alpha > 0.01) {
+            // Opaque background = a candidate for what buries the wash.
+            // CGColorGetAlpha, not getWhite:alpha: — the latter reports failure
+            // and leaves its out-params untouched for any non-greyscale colour,
+            // which is most of them.
+            CGFloat bgAlpha = view.backgroundColor
+                ? CGColorGetAlpha(view.backgroundColor.CGColor) : 0.0;
+            // Any image this view is showing, without walking into private
+            // structure: UIImageView's own property, or a layer whose contents
+            // is a CGImage (which is how a SwiftUI image usually lands).
+            NSString *img = @"-";
+            if ([view isKindOfClass:UIImageView.class]) {
+                UIImage *shown = ((UIImageView *)view).image;
+                if (shown) img = [NSString stringWithFormat:@"%.0fx%.0f",
+                                  shown.size.width, shown.size.height];
+            } else if (view.layer.contents &&
+                       CFGetTypeID((__bridge CFTypeRef)view.layer.contents) == CGImageGetTypeID()) {
+                CGImageRef cg = (__bridge CGImageRef)view.layer.contents;
+                img = [NSString stringWithFormat:@"%zux%zu",
+                       CGImageGetWidth(cg), CGImageGetHeight(cg)];
+            }
+            [rows addObject:[NSString stringWithFormat:@"%ld|%@%@|bg%.2f|img%@",
+                             (long)depth, NSStringFromClass(view.class),
+                             NSStringFromCGRect(f), bgAlpha, img]];
+        }
+        if (depth >= 6) continue;
+        for (UIView *sub in view.subviews) {
+            [queue addObject:sub];
+            [depths addObject:@(depth + 1)];
+        }
+    }
+
+    M27WriteStatus(@"album_tree", @{
+        @"vc": NSStringFromClass(vc.class),
+        @"view": NSStringFromCGRect(vc.view.bounds),
+        @"safe_top": @((double)vc.view.safeAreaInsets.top),
+        @"rows": @((long)rows.count),
+        @"tree": rows.count ? [rows componentsJoinedByString:@" "] : @"none",
+    });
+}
+
 %hook UIViewController
 
 // "The red buttons do appear for a second sometimes, and then disappear."
@@ -612,6 +768,19 @@ static void M27RetryAlbumInstall(UIViewController *vc) {
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) return;
     if (!M27IsAlbumDetailController(self)) return;
     M27InstallAlbumControls(self);
+
+    // Measure after the header has had time to build itself. At viewDidAppear
+    // the artwork is often not there yet — the same asynchrony that made the
+    // stock buttons flash — and a dump of a half-built page is what sent the
+    // full-player work down two wrong paths.
+    __weak UIViewController *weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        __strong UIViewController *strongSelf = weakSelf;
+        if (strongSelf && strongSelf.isViewLoaded && strongSelf.view.window) {
+            M27ReportAlbumTree(strongSelf);
+        }
+    });
 }
 
 - (void)viewDidLayoutSubviews {

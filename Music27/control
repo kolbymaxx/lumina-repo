@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.49
+Version: 1.1.50
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.49: the top edge light is a gradient that falls off and tapers instead of a ruled 1pt line, and the download button re-renders four times a second so a download's progress ring actually moves.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.50: the mirrored download glyph is converted to luminance so the live progress ring renders black-and-white instead of Apple's red, the skip button is no longer clipped by its own circular mask, and the album page is measured for the full-bleed artwork work.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks

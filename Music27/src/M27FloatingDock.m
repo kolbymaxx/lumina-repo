@@ -72,8 +72,12 @@ static const CGFloat kM27CircleButton = 44.0;
                                     target:(id)target
                                     action:(SEL)action {
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    // 18pt, not 20. These buttons are laid out at 34pt in the mini pill, and
+    // `forward.fill` is the widest symbol used here — two triangles side by
+    // side, so it runs roughly 1.4x the width of `play.fill` at the same point
+    // size. At 20pt semibold it overhangs a 34pt box.
     UIImageSymbolConfiguration *cfg =
-        [UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold];
+        [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
     UIImage *image = [UIImage systemImageNamed:name withConfiguration:cfg];
     [button setImage:image forState:UIControlStateNormal];
     button.tintColor = tint;
@@ -82,7 +86,15 @@ static const CGFloat kM27CircleButton = 44.0;
     if (@available(iOS 13.0, *)) {
         button.layer.cornerCurve = kCACornerCurveContinuous;
     }
-    button.clipsToBounds = YES;
+    // NOT clipsToBounds. That is what cropped the skip glyph.
+    //
+    // The corner radius is kM27CircleButton / 2 = 22, and Core Animation clamps
+    // a radius to half the shorter side — so on a 34pt button the mask is a
+    // 34pt circle, and a wide symbol's outer tips fall outside it. The
+    // translucent background is painted by the layer and is rounded by
+    // cornerRadius with or without clipping, so turning clipping off costs the
+    // shape nothing and stops the mask reaching the glyph.
+    button.clipsToBounds = NO;
     [button addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
     return button;
 }

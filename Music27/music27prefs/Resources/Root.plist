@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.49: two fixes. The bright line along the top of every pill was a flat 1pt bar of white, which is why it read as a grey rule rather than as light on glass; it is now a gradient that falls off over 3 points and fades out towards each end. And the album download button was re-rendering only when the stock control’s accessibility label changed — that label stays “Downloading” for the whole download while the ring fills, so the glass button froze on one frame. It now re-renders four times a second, so the progress ring moves.</string>
+			<string>1.1.50: the download button keeps mirroring Music’s own control — that is what makes the progress ring real, in every language and every state — but the mirror is now converted to luminance, so it renders black-and-white instead of Apple’s red while the ring still fills. The skip button was being cropped by its own circular mask: the corner radius is half a 44pt button applied to a 34pt one, and the wide double-triangle glyph fell outside the resulting circle. And the album page is measured into status.log, which is what the full-bleed artwork and colour matching need before they can be built rather than guessed.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -122,7 +122,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.49 — edge light is a gradient, not a line; download button polls fast enough to show progress. Verified on iOS 17.3; 16.7 untested.</string>
+			<string>Music27 1.1.50 — monochrome download mirror; skip glyph unclipped; album page measured. Verified on iOS 17.3; 16.7 untested.</string>
 		</dict>
 	</array>
 	<key>title</key>
