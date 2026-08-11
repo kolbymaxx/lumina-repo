@@ -212,9 +212,28 @@ https://raw.githubusercontent.com/ma6x9x/lumina-repo/main/
 
 Then search for **Music27** and install. New versions show up as normal Sileo updates when the repo is refreshed.
 
+**The apt index lags the builds.** `dist/` and `Packages` are only updated when
+someone runs `scripts/publish-to-lumina.sh` and commits the result, which has not
+happened for the 1.1.2x–1.1.5x series — the index currently advertises a much
+older version. Until a build is published, the `.deb` for a given version comes
+from its **CI run artifact** (`Music27-rootless-deb`) on the *Build Music27*
+workflow, not from Sileo.
+
 Manual / Filza: install `packages/com.music27.tweak_*.deb`, respring, force-quit and relaunch **Music**. Toggle features under **Settings → Music27**.
 
-Architecture: `iphoneos-arm64` (rootless, files under `/var/jb`).
+## Packaging schemes
+
+| Scheme | Architecture | Status |
+|--------|--------------|--------|
+| **rootless** (Dopamine) | `iphoneos-arm64`, files under `/var/jb` | **Supported.** Every version is verified on an iPhone 12 mini / iOS 17.3 before it is called done |
+| **roothide** | `iphoneos-arm64` | **Built, not verified.** Produced by CI whenever the toolchain cooperates, but the maintainer no longer runs a roothide jailbreak and cannot test it |
+
+The roothide CI job is `continue-on-error: true` deliberately. It has twice
+failed at `Setup Theos (roothide fork)` on a TLS certificate error, one second
+in, before compiling anything — once on a README-only commit — while the
+rootless job built the same sources cleanly. A red X that can mean "GitHub's
+certificate chain hiccuped" is worse than no X at all, because it teaches you to
+ignore the one that means something.
 
 ## Verify on iOS 17 (Dopamine rootless)
 

@@ -71,6 +71,23 @@ jobs:
     name: Build roothide .deb
     runs-on: macos-14
     timeout-minutes: 45
+    # NON-BLOCKING ON PURPOSE — this job's red X does not mean the tweak is
+    # broken, and letting it mean that was costing real signal.
+    #
+    # Two 1.1.5x runs failed here, both at `Setup Theos (roothide fork)`, one
+    # second in, before a single source file was compiled:
+    #
+    #   Get "https://api.github.com/repos/theos/sdks/commits/master":
+    #   tls: failed to verify certificate: x509: certificate signed by unknown authority
+    #
+    # The rootless job built the identical sources cleanly seconds earlier both
+    # times. One of those runs was a README-only commit. A failure mode that can
+    # flag a docs change as a broken build is not a signal worth blocking on.
+    #
+    # The artifact is still produced whenever the step succeeds, so anyone on
+    # roothide keeps getting builds — but the package is unverified: the
+    # maintainer moved off roothide and cannot test it. See Music27/README.md.
+    continue-on-error: true
 
     steps:
       - name: Checkout
