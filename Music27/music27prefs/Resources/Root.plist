@@ -10,7 +10,7 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.46: collapsed is three separate capsules — the tab button, the now-playing pill, and Search — instead of one merged pill, matching iOS 27. It also keeps the same height as the expanded dock, which is what makes tapping the collapsed artwork open the full player: the pill now sits over Music’s own mini player in both modes, where before it dropped 54 points below it and had nothing to hand the tap to.</string>
+			<string>1.1.47: the collapsed row sits where the categories were, rather than floating up at the mini player’s height. That is the right position, and it has a cost worth knowing: down there the row no longer overlaps Music’s own hidden mini player, so a collapsed tap expands the dock instead of opening the player directly. The stock Play/Shuffle/Download buttons also stop flashing — Music builds that header after the page appears, so the tweak now waits for it instead of missing it and trying again on the next layout.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -122,7 +122,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.46 — three collapsed capsules; collapsed tap opens the player. Verify on iOS 16.7 + 17.3 before APT.</string>
+			<string>Music27 1.1.47 — collapsed row sits low; no stock-button flash. Verified on iOS 17.3; 16.7 untested.</string>
 		</dict>
 	</array>
 	<key>title</key>

@@ -401,18 +401,18 @@ static NSString *M27DescribeControl(UIView *view) {
             NSStringFromCGRect(view.frame)];
 }
 
-static void M27InstallAlbumControls(UIViewController *vc) {
+static BOOL M27InstallAlbumControls(UIViewController *vc) {
     M27Prefs *prefs = M27Prefs.shared;
     // May live in vc.view (older builds) or in the stock controls' superview.
     UIView *existing = [vc.view viewWithTag:kM27AlbumControlsTag];
 
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) {
         [existing removeFromSuperview];
-        return;
+        return NO;
     }
     if (!M27IsAlbumDetailController(vc)) {
         [existing removeFromSuperview];
-        return;
+        return NO;
     }
 
     // Exact title match avoids false positives like "playlist" / "Listen Now".
@@ -427,7 +427,7 @@ static void M27InstallAlbumControls(UIViewController *vc) {
             @"shuffle": M27DescribeControl(shuffle),
             @"vc": NSStringFromClass(vc.class),
         });
-        return;
+        return NO;
     }
 
     // Hide only small stock controls — never a hosting/content ancestor.
@@ -540,6 +540,37 @@ static void M27InstallAlbumControls(UIViewController *vc) {
         @"span": NSStringFromCGRect(span),
         @"sibling_of_hidden_row": stockRow ? @"yes" : @"no",
     });
+    return YES;
+}
+
+/// Keep trying until the stock row exists.
+///
+/// "The old red shuffle play and download buttons still show for a second or
+/// two." They do, and neither viewWillAppear nor the first viewDidLayoutSubviews
+/// can help: status.log reports `album_lookup_failed play=nil shuffle=nil` at
+/// both, because Music builds this header asynchronously. Layout does not run
+/// again until something changes, which is exactly the second or two of stock
+/// buttons on screen.
+///
+/// So poll — briefly, and only until it works. Every other trigger stays; this
+/// just closes the window none of them cover.
+static void M27RetryAlbumInstall(UIViewController *vc) {
+    if (!vc) return;
+    __weak UIViewController *weakVC = vc;
+    __block NSInteger attempts = 0;
+    NSTimer *timer = [NSTimer timerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *t) {
+        __strong UIViewController *strongVC = weakVC;
+        attempts++;
+        // ~2s. If the header has not appeared by then it is not going to, and a
+        // timer that never stops is worse than a flash.
+        if (!strongVC || !strongVC.isViewLoaded || strongVC.view.window == nil || attempts > 40) {
+            [t invalidate];
+            return;
+        }
+        if (M27InstallAlbumControls(strongVC)) [t invalidate];
+    }];
+    // Common modes: a scroll in progress must not stall the retry.
+    [NSRunLoop.mainRunLoop addTimer:timer forMode:NSRunLoopCommonModes];
 }
 
 %hook UIViewController
@@ -559,7 +590,7 @@ static void M27InstallAlbumControls(UIViewController *vc) {
     M27Prefs *prefs = M27Prefs.shared;
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) return;
     if (!M27IsAlbumDetailController(self)) return;
-    M27InstallAlbumControls(self);
+    if (!M27InstallAlbumControls(self)) M27RetryAlbumInstall(self);
 }
 
 - (void)viewDidAppear:(BOOL)animated {

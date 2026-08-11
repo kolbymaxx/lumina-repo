@@ -3,9 +3,7 @@
 #import "Music27.h"
 
 static const CGFloat kM27DockSideInset = 18.0;
-/// Collapsed capsule height. Deliberately the same as the expanded mini pill so
-/// that collapsing does not move the now-playing pill down the screen — see the
-/// geometry note in layoutSubviews.
+/// Corner radius basis for the collapsed capsules.
 static const CGFloat kM27CollapsedPill = 52.0;
 static const CGFloat kM27CollapsedGap = 8.0;
 static const CGFloat kM27ExpandedMiniHeight = 52.0;
@@ -15,9 +13,7 @@ static const CGFloat kM27CircleButton = 44.0;
 
 @interface M27FloatingDock ()
 /// Collapsed is THREE separate capsules, matching iOS 27: the tab affordance in
-/// its own rounded square, the now-playing pill, and Search in a circle. It used
-/// to be one merged pill, which is both the wrong shape and the reason tapping
-/// the artwork could not open the player — see the layout note for the geometry.
+/// its own rounded square, the now-playing pill, and Search in a circle.
 @property (nonatomic, strong) UIView *collapsedLeadingHost;
 @property (nonatomic, strong) UIVisualEffectView *collapsedLeadingGlass;
 @property (nonatomic, strong) UIView *collapsedTrailingHost;
@@ -75,7 +71,7 @@ static const CGFloat kM27CircleButton = 44.0;
                                     action:(SEL)action {
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     UIImageSymbolConfiguration *cfg =
-        [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
+        [UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightSemibold];
     UIImage *image = [UIImage systemImageNamed:name withConfiguration:cfg];
     [button setImage:image forState:UIControlStateNormal];
     button.tintColor = tint;
@@ -102,7 +98,7 @@ static const CGFloat kM27CircleButton = 44.0;
     _redButton = [UIButton buttonWithType:UIButtonTypeSystem];
     _redButton.backgroundColor = [UIColor colorWithRed:0.98 green:0.18 blue:0.30 alpha:1.0];
     _redButton.tintColor = UIColor.whiteColor;
-    _redButton.layer.cornerRadius = 12.0;
+    _redButton.layer.cornerRadius = 8.0;   // ~24% of 34pt, an app-icon squircle
     if (@available(iOS 13.0, *)) {
         _redButton.layer.cornerCurve = kCACornerCurveContinuous;
     }
@@ -131,9 +127,9 @@ static const CGFloat kM27CircleButton = 44.0;
         _collapsedArt.layer.cornerCurve = kCACornerCurveContinuous;
     }
     _collapsedArt.backgroundColor = [UIColor colorWithWhite:0.5 alpha:0.25];
-    // No tap gesture on the artwork any more. The pill now sits over Music's own
-    // mini player, so the touch is declined and Music opens the full player
-    // itself — a gesture here would swallow it before that could happen.
+    // No tap gesture here. The pill's own hit-testing decides between keeping
+    // the touch and declining it to Music (see pointInside:), and a gesture on
+    // the artwork would swallow it before that choice is ever made.
     _collapsedArt.userInteractionEnabled = NO;
     [_collapsedGlass.contentView addSubview:_collapsedArt];
 
@@ -451,24 +447,32 @@ static const CGFloat kM27CircleButton = 44.0;
     CGFloat width = self.bounds.size.width;
     CGFloat side = kM27DockSideInset;
 
-    // Collapsed: three separate capsules, all sitting at y = 0.
+    // Collapsed: three separate capsules, sitting where the tab row was.
     //
-    // y = 0 is the point. The strip is pinned to the bottom, and holding the
-    // expanded height (see preferredHeight) puts this row exactly where the
-    // expanded mini pill sits — over Music's own mini player, which is what lets
-    // a tap on the artwork reach it and open the full player.
-    CGFloat pillH = kM27CollapsedPill;
-    CGFloat capsule = pillH;   // leading and trailing are circles
+    // 1.1.46 put this row at y = 0 so it would overlap Music's hidden mini
+    // player and the passthrough could open the full player. On device that read
+    // as floating far too high — the pill is supposed to drop into the space the
+    // categories occupied, which is what iOS 27 does.
+    //
+    // So position wins, and the cost is real and worth stating: down here the row
+    // spans roughly screen 720-778 against a mini player at 667-723, about 3pt of
+    // overlap, so a tap can no longer be handed to Music. Collapsed taps fall
+    // back to expanding the dock; one-tap-to-player in this mode needs Music's
+    // hidden mini player moved, which is a change to the host app's layout and
+    // deserves its own build.
+    CGFloat pillH = kM27ExpandedTabHeight;
+    CGFloat rowY = kM27ExpandedMiniHeight + kM27ExpandedGap;
+    CGFloat capsule = pillH;
 
-    self.collapsedLeadingHost.frame = CGRectMake(side, 0, capsule, pillH);
+    self.collapsedLeadingHost.frame = CGRectMake(side, rowY, capsule, pillH);
     self.collapsedLeadingGlass.frame = self.collapsedLeadingHost.bounds;
     [M27GlassChrome applyPaletteTintToGlass:self.collapsedLeadingGlass];
-    CGFloat redSide = 30.0;
+    CGFloat redSide = 34.0;
     self.redButton.frame = CGRectMake((capsule - redSide) / 2.0, (pillH - redSide) / 2.0,
                                       redSide, redSide);
 
     CGFloat trailingX = width - side - capsule;
-    self.collapsedTrailingHost.frame = CGRectMake(trailingX, 0, capsule, pillH);
+    self.collapsedTrailingHost.frame = CGRectMake(trailingX, rowY, capsule, pillH);
     self.collapsedTrailingGlass.frame = self.collapsedTrailingHost.bounds;
     [M27GlassChrome applyPaletteTintToGlass:self.collapsedTrailingGlass];
     self.searchButton.frame = CGRectMake((capsule - kM27CircleButton) / 2.0,
@@ -477,23 +481,23 @@ static const CGFloat kM27CircleButton = 44.0;
 
     CGFloat centreX = side + capsule + kM27CollapsedGap;
     CGFloat centreW = MAX(0, trailingX - kM27CollapsedGap - centreX);
-    self.collapsedHost.frame = CGRectMake(centreX, 0, centreW, pillH);
+    self.collapsedHost.frame = CGRectMake(centreX, rowY, centreW, pillH);
     self.collapsedGlass.frame = self.collapsedHost.bounds;
     [M27GlassChrome applyPaletteTintToGlass:self.collapsedGlass];
 
     CGFloat pad = 8.0;
-    CGFloat art = 36.0;
+    CGFloat art = 40.0;
     CGFloat artY = (pillH - art) / 2.0;
     self.collapsedArt.frame = CGRectMake(pad, artY, art, art);
 
-    CGFloat playW = 34.0;
+    CGFloat playW = 36.0;
     CGFloat playX = MAX(0, centreW - pad - playW);
     self.collapsedPlayPause.frame = CGRectMake(playX, (pillH - playW) / 2.0, playW, playW);
 
-    CGFloat textX = CGRectGetMaxX(self.collapsedArt.frame) + 8.0;
+    CGFloat textX = CGRectGetMaxX(self.collapsedArt.frame) + 9.0;
     CGFloat textW = MAX(0, playX - 6.0 - textX);
-    self.collapsedTitle.frame = CGRectMake(textX, artY + 1.0, textW, 16.0);
-    self.collapsedArtist.frame = CGRectMake(textX, artY + 18.0, textW, 14.0);
+    self.collapsedTitle.frame = CGRectMake(textX, artY + 3.0, textW, 16.0);
+    self.collapsedArtist.frame = CGRectMake(textX, artY + 20.0, textW, 14.0);
 
     // Expanded
     CGFloat expandedH = self.preferredHeight;
@@ -620,11 +624,15 @@ static const CGFloat kM27CircleButton = 44.0;
 }
 
 - (void)nowPlayingTapped {
-    // 1.1.44 expanded the dock here as a stopgap, because collapsed the pill sat
-    // below Music's mini player and had nothing to hand the touch to. The
-    // collapsed row now sits at the same y as the expanded pill, so the
-    // passthrough reaches in both modes and this is only hit when the tap misses
-    // the mini player entirely.
+    // Collapsed, the row sits over where Music's tab bar was, not over its mini
+    // player, so the passthrough has nothing to hand the touch to — see the
+    // geometry note in layoutSubviews. Expanding is the honest response: it puts
+    // the pill back over the mini player, where the next tap does open the
+    // player. Better than a tap that does nothing at all.
+    if (self.mode == M27DockModeCollapsed) {
+        [self setMode:M27DockModeExpanded animated:YES];
+        return;
+    }
     if ([self.delegate respondsToSelector:@selector(floatingDockDidTapNowPlaying:)]) {
         [self.delegate floatingDockDidTapNowPlaying:self];
     }
