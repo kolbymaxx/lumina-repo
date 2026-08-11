@@ -41,6 +41,54 @@ SAMPLE = {
 }
 
 
+# Shaped exactly like a 0.4.0 on-device window dump: ascending windowLevel,
+# app window at 0, tweak overlay above it, system window on top.
+WINDOW_SAMPLE = {
+    "tool_version": "0.4.0",
+    "milestone": 1,
+    "message": "window scan nodes=0 windows=3",
+    "nodes": [],
+    "windows": [
+        {
+            "class": "UIWindow",
+            "level": 0.0,
+            "frame": "{0,0,390,844}",
+            "hidden": False,
+            "opaque": True,
+            "alpha": 1.0,
+            "is_key": True,
+            "background": "nil",
+            "root_vc": "MusicApplication.RootViewController",
+            "root_view_loaded": True,
+        },
+        {
+            "class": "M27DockOverlayWindow",
+            "level": 2.0,
+            "frame": "{0,0,390,844}",
+            "hidden": False,
+            "opaque": False,
+            "alpha": 1.0,
+            "is_key": False,
+            "background": "clear",
+            "root_vc": "UIViewController",
+            "root_view_loaded": True,
+        },
+        {
+            "class": "UITextEffectsWindow",
+            "level": 999.0,
+            "frame": "{0,0,390,844}",
+            "hidden": True,
+            "opaque": False,
+            "alpha": 1.0,
+            "is_key": False,
+            "background": "nil",
+            "root_vc": "nil",
+            "root_view_loaded": False,
+        },
+    ],
+}
+
+
 class ReadAPITests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -88,6 +136,98 @@ class ReadAPITests(unittest.TestCase):
             p.write_text(json.dumps(SAMPLE))
             sess = PeekSession(p, self.catalog)
             self.assertEqual(sess.summary()["matched_nodes"], 3)
+
+    def test_windows_absent_on_old_dump(self):
+        """0.3.x dumps have no `windows` key — must not raise."""
+        sess = PeekSession(SAMPLE, self.catalog)
+        self.assertEqual(sess.windows, [])
+        self.assertEqual(sess.windows_table(), [])
+        self.assertEqual(sess.summary()["windows"], 0)
+
+    def test_windows_sorted_and_flagged(self):
+        sess = PeekSession(WINDOW_SAMPLE, self.catalog)
+        self.assertEqual(len(sess.windows), 3)
+        self.assertEqual(sess.summary()["windows"], 3)
+
+        rows = sess.windows_table()
+        self.assertEqual(len(rows), 3)
+        # Overlay window: transparent, not key, so no OPAQUE/KEY/bg flags.
+        overlay = rows[1]
+        self.assertIn("M27DockOverlayWindow", overlay)
+        self.assertIn("level=2.0", overlay)
+        self.assertNotIn("HIDDEN", overlay)
+        self.assertNotIn("bg=", overlay)
+        # Hidden window is flagged — the signature of an overlay that never paints.
+        self.assertIn("HIDDEN", rows[2])
+        # App window keeps KEY + OPAQUE.
+        self.assertIn("KEY", rows[0])
+        self.assertIn("OPAQUE", rows[0])
+
+    def test_windows_views_opt_in(self):
+        """View subtree is printed only with views=True."""
+        sample = json.loads(json.dumps(WINDOW_SAMPLE))
+        sample["windows"][1]["views"] = [
+            {
+                "depth": 0,
+                "class": "M27PassthroughView",
+                "frame": "{0,0,390,844}",
+                "hidden": False,
+                "alpha": 1.0,
+            },
+            {
+                "depth": 1,
+                "class": "M27FloatingDock",
+                "frame": "{0,0,0,0}",
+                "hidden": False,
+                "alpha": 1.0,
+                "invisible": True,
+            },
+        ]
+        sess = PeekSession(sample, self.catalog)
+
+        plain = sess.windows_table()
+        self.assertEqual(len(plain), 3)
+        self.assertFalse(any("M27FloatingDock" in r for r in plain))
+
+        with_views = sess.windows_table(views=True)
+        self.assertEqual(len(with_views), 5)
+        dock = [r for r in with_views if "M27FloatingDock" in r]
+        self.assertEqual(len(dock), 1)
+        # A zero-sized dock inside a correct overlay is the case we are hunting.
+        self.assertIn("INVISIBLE", dock[0])
+        self.assertIn("{0,0,0,0}", dock[0])
+
+    def test_windows_views_absent_is_safe(self):
+        """Windows with no `views` key must not break views=True."""
+        sess = PeekSession(WINDOW_SAMPLE, self.catalog)
+        self.assertEqual(len(sess.windows_table(views=True)), 3)
+
+    def test_windows_flags_opaque_background(self):
+        """A solid background is the white-screen signature — must surface."""
+        sess = PeekSession(
+            {
+                "tool_version": "0.4.0",
+                "nodes": [],
+                "windows": [
+                    {
+                        "class": "BadOverlay",
+                        "level": 999.0,
+                        "frame": "{0,0,390,844}",
+                        "hidden": False,
+                        "opaque": True,
+                        "alpha": 0.5,
+                        "is_key": False,
+                        "background": "white(1.00,a=1.00)",
+                        "root_vc": "UIViewController",
+                    }
+                ],
+            },
+            self.catalog,
+        )
+        row = sess.windows_table()[0]
+        self.assertIn("bg=white(1.00,a=1.00)", row)
+        self.assertIn("alpha=0.50", row)
+        self.assertIn("OPAQUE", row)
 
 
 if __name__ == "__main__":

@@ -3,13 +3,23 @@
 #import "Music27.h"
 
 static const CGFloat kM27DockSideInset = 18.0;
-static const CGFloat kM27CollapsedHeight = 64.0;
+/// Collapsed capsule height. Matches the expanded mini pill rather than the
+/// 58pt tab row: at 58 the collapsed capsules read as visibly fatter than the
+/// pill they replace, which is the "gets fat when it collapses" complaint.
+static const CGFloat kM27CollapsedPill = 52.0;
+static const CGFloat kM27CollapsedGap = 8.0;
 static const CGFloat kM27ExpandedMiniHeight = 52.0;
 static const CGFloat kM27ExpandedTabHeight = 58.0;
 static const CGFloat kM27ExpandedGap = 8.0;
 static const CGFloat kM27CircleButton = 44.0;
 
 @interface M27FloatingDock ()
+/// Collapsed is THREE separate capsules, matching iOS 27: the tab affordance in
+/// its own rounded square, the now-playing pill, and Search in a circle.
+@property (nonatomic, strong) UIView *collapsedLeadingHost;
+@property (nonatomic, strong) UIVisualEffectView *collapsedLeadingGlass;
+@property (nonatomic, strong) UIView *collapsedTrailingHost;
+@property (nonatomic, strong) UIVisualEffectView *collapsedTrailingGlass;
 @property (nonatomic, strong) UIView *collapsedHost;
 @property (nonatomic, strong) UIVisualEffectView *collapsedGlass;
 @property (nonatomic, strong) UIButton *redButton;
@@ -62,6 +72,10 @@ static const CGFloat kM27CircleButton = 44.0;
                                     target:(id)target
                                     action:(SEL)action {
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    // 18pt, not 20. These buttons are laid out at 34pt in the mini pill, and
+    // `forward.fill` is the widest symbol used here — two triangles side by
+    // side, so it runs roughly 1.4x the width of `play.fill` at the same point
+    // size. At 20pt semibold it overhangs a 34pt box.
     UIImageSymbolConfiguration *cfg =
         [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
     UIImage *image = [UIImage systemImageNamed:name withConfiguration:cfg];
@@ -72,35 +86,49 @@ static const CGFloat kM27CircleButton = 44.0;
     if (@available(iOS 13.0, *)) {
         button.layer.cornerCurve = kCACornerCurveContinuous;
     }
-    button.clipsToBounds = YES;
+    // NOT clipsToBounds. That is what cropped the skip glyph.
+    //
+    // The corner radius is kM27CircleButton / 2 = 22, and Core Animation clamps
+    // a radius to half the shorter side — so on a 34pt button the mask is a
+    // 34pt circle, and a wide symbol's outer tips fall outside it. The
+    // translucent background is painted by the layer and is rounded by
+    // cornerRadius with or without clipping, so turning clipping off costs the
+    // shape nothing and stops the mask reaching the glyph.
+    button.clipsToBounds = NO;
     [button addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
     return button;
 }
 
 - (void)buildCollapsed {
+    // Leading capsule: the tab affordance on its own.
+    _collapsedLeadingHost = [[UIView alloc] initWithFrame:CGRectZero];
+    _collapsedLeadingHost.backgroundColor = UIColor.clearColor;
+    [M27GlassChrome addSoftShadowToHost:_collapsedLeadingHost];
+    [self addSubview:_collapsedLeadingHost];
+
+    _collapsedLeadingGlass = [M27GlassChrome pillWithCornerRadius:kM27CollapsedPill / 2.0];
+    [_collapsedLeadingHost addSubview:_collapsedLeadingGlass];
+
+    // A house, tinted, sitting in the glass — not a music-note list on a solid
+    // red tile. The reference shot is unambiguous about this one.
+    _redButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    _redButton.backgroundColor = UIColor.clearColor;
+    _redButton.tintColor = [UIColor colorWithRed:0.98 green:0.24 blue:0.35 alpha:1.0];
+    UIImageSymbolConfiguration *cfg =
+        [UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightSemibold];
+    [_redButton setImage:[UIImage systemImageNamed:@"house.fill" withConfiguration:cfg]
+                forState:UIControlStateNormal];
+    [_redButton addTarget:self action:@selector(redTapped) forControlEvents:UIControlEventTouchUpInside];
+    [_collapsedLeadingGlass.contentView addSubview:_redButton];
+
+    // Centre capsule: the now-playing pill.
     _collapsedHost = [[UIView alloc] initWithFrame:CGRectZero];
     _collapsedHost.backgroundColor = UIColor.clearColor;
     [M27GlassChrome addSoftShadowToHost:_collapsedHost];
     [self addSubview:_collapsedHost];
 
-    _collapsedGlass = [M27GlassChrome pillWithCornerRadius:kM27CollapsedHeight / 2.0];
+    _collapsedGlass = [M27GlassChrome pillWithCornerRadius:kM27CollapsedPill / 2.0];
     [_collapsedHost addSubview:_collapsedGlass];
-
-    // Red "album / Music" affordance — expands the dock back to 5 tabs.
-    _redButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    _redButton.backgroundColor = [UIColor colorWithRed:0.98 green:0.18 blue:0.30 alpha:1.0];
-    _redButton.tintColor = UIColor.whiteColor;
-    _redButton.layer.cornerRadius = 12.0;
-    if (@available(iOS 13.0, *)) {
-        _redButton.layer.cornerCurve = kCACornerCurveContinuous;
-    }
-    _redButton.clipsToBounds = YES;
-    UIImageSymbolConfiguration *cfg =
-        [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightBold];
-    [_redButton setImage:[UIImage systemImageNamed:@"music.note.list" withConfiguration:cfg]
-                forState:UIControlStateNormal];
-    [_redButton addTarget:self action:@selector(redTapped) forControlEvents:UIControlEventTouchUpInside];
-    [_collapsedGlass.contentView addSubview:_redButton];
 
     _collapsedArt = [UIImageView new];
     _collapsedArt.contentMode = UIViewContentModeScaleAspectFill;
@@ -110,25 +138,24 @@ static const CGFloat kM27CircleButton = 44.0;
         _collapsedArt.layer.cornerCurve = kCACornerCurveContinuous;
     }
     _collapsedArt.backgroundColor = [UIColor colorWithWhite:0.5 alpha:0.25];
-    _collapsedArt.userInteractionEnabled = YES;
-    UITapGestureRecognizer *artTap =
-        [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(nowPlayingTapped)];
-    [_collapsedArt addGestureRecognizer:artTap];
+    // No tap gesture here. The pill's own hit-testing decides between keeping
+    // the touch and declining it to Music (see pointInside:), and a gesture on
+    // the artwork would swallow it before that choice is ever made.
+    _collapsedArt.userInteractionEnabled = NO;
     [_collapsedGlass.contentView addSubview:_collapsedArt];
 
     _collapsedTitle = [UILabel new];
     _collapsedTitle.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
     _collapsedTitle.textColor = UIColor.labelColor;
     _collapsedTitle.lineBreakMode = NSLineBreakByTruncatingTail;
-    _collapsedTitle.userInteractionEnabled = YES;
-    [_collapsedTitle addGestureRecognizer:
-        [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(nowPlayingTapped)]];
+    _collapsedTitle.userInteractionEnabled = NO;
     [_collapsedGlass.contentView addSubview:_collapsedTitle];
 
     _collapsedArtist = [UILabel new];
     _collapsedArtist.font = [UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
     _collapsedArtist.textColor = UIColor.secondaryLabelColor;
     _collapsedArtist.lineBreakMode = NSLineBreakByTruncatingTail;
+    _collapsedArtist.userInteractionEnabled = NO;
     [_collapsedGlass.contentView addSubview:_collapsedArtist];
 
     _collapsedPlayPause = [self circleIconButtonWithSystemName:@"pause.fill"
@@ -138,12 +165,21 @@ static const CGFloat kM27CircleButton = 44.0;
     _collapsedPlayPause.backgroundColor = UIColor.clearColor;
     [_collapsedGlass.contentView addSubview:_collapsedPlayPause];
 
+    // Trailing capsule: Search on its own.
+    _collapsedTrailingHost = [[UIView alloc] initWithFrame:CGRectZero];
+    _collapsedTrailingHost.backgroundColor = UIColor.clearColor;
+    [M27GlassChrome addSoftShadowToHost:_collapsedTrailingHost];
+    [self addSubview:_collapsedTrailingHost];
+
+    _collapsedTrailingGlass = [M27GlassChrome pillWithCornerRadius:kM27CollapsedPill / 2.0];
+    [_collapsedTrailingHost addSubview:_collapsedTrailingGlass];
+
     _searchButton = [self circleIconButtonWithSystemName:@"magnifyingglass"
                                                     tint:UIColor.labelColor
                                                   target:self
                                                   action:@selector(searchTapped)];
-    _searchButton.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.22];
-    [_collapsedGlass.contentView addSubview:_searchButton];
+    _searchButton.backgroundColor = UIColor.clearColor;
+    [_collapsedTrailingGlass.contentView addSubview:_searchButton];
 }
 
 - (void)buildExpanded {
@@ -155,6 +191,14 @@ static const CGFloat kM27CircleButton = 44.0;
     UIView *miniHost = [[UIView alloc] initWithFrame:CGRectZero];
     miniHost.tag = 0x4D324D48; // 'M2MH'
     miniHost.backgroundColor = UIColor.clearColor;
+    // The whole pill opens Now Playing. Previously only the 36pt artwork and
+    // the title label carried the gesture, so most of the pill was dead — and
+    // status.log proved it: not a single nowplaying_* line was ever written,
+    // meaning the delegate was never reached. The play/pause and next buttons
+    // are UIControl subviews, so they still win the hit test over this.
+    miniHost.userInteractionEnabled = YES;
+    [miniHost addGestureRecognizer:
+        [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(nowPlayingTapped)]];
     [M27GlassChrome addSoftShadowToHost:miniHost];
     [miniHost addSubview:_miniGlass];
     [_expandedHost addSubview:miniHost];
@@ -185,6 +229,7 @@ static const CGFloat kM27CircleButton = 44.0;
     _expandedArtist.font = [UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
     _expandedArtist.textColor = UIColor.secondaryLabelColor;
     _expandedArtist.lineBreakMode = NSLineBreakByTruncatingTail;
+    _expandedArtist.userInteractionEnabled = NO; // falls through to miniHost
     [_miniGlass.contentView addSubview:_expandedArtist];
 
     _expandedPlayPause = [self circleIconButtonWithSystemName:@"pause.fill"
@@ -219,9 +264,21 @@ static const CGFloat kM27CircleButton = 44.0;
 #pragma mark - Public
 
 - (CGFloat)preferredHeight {
-    if (self.mode == M27DockModeCollapsed) {
-        return kM27CollapsedHeight;
+    if (!self.hasTrack) {
+        // Tab row only — no pill, so no pill height and no gap.
+        return kM27ExpandedTabHeight;
     }
+    // COLLAPSED KEEPS THE EXPANDED HEIGHT ON PURPOSE.
+    //
+    // The strip is pinned to the bottom of the screen, so a shorter dock sits
+    // lower. Collapsing used to drop the pill from screen 660-712 to 714-778,
+    // and Music's own mini player is at 665-729 — which left 15pt of overlap
+    // and no way for a tap to reach it. That is why tapping the collapsed
+    // artwork could not open the player while the expanded pill could.
+    //
+    // Holding the height keeps the collapsed capsules at the same y as the
+    // expanded pill, where they overlap the mini player by ~47pt. The space
+    // below them is empty and passes touches through, which costs nothing.
     return kM27ExpandedMiniHeight + kM27ExpandedGap + kM27ExpandedTabHeight;
 }
 
@@ -243,6 +300,9 @@ static const CGFloat kM27CircleButton = 44.0;
 
 - (void)collapseFromScroll {
     if (self.mode == M27DockModeCollapsed) return;
+    // Collapsing trades the tab row for a now-playing pill. With nothing
+    // playing that trade leaves an empty pill and no tabs, so refuse it.
+    if (!self.hasTrack) return;
     [self setMode:M27DockModeCollapsed animated:YES];
 }
 
@@ -264,9 +324,30 @@ static const CGFloat kM27CircleButton = 44.0;
 
 - (void)setTrackTitle:(NSString *)trackTitle {
     _trackTitle = [trackTitle copy];
-    NSString *text = trackTitle.length ? trackTitle : @"Not Playing";
-    self.collapsedTitle.text = text;
-    self.expandedTitle.text = text;
+    // No "Not Playing" fallback any more. When nothing is playing the pill is
+    // removed entirely (see setHasTrack:), so a placeholder string here would
+    // only ever be visible for the frame before that happens.
+    self.collapsedTitle.text = trackTitle ?: @"";
+    self.expandedTitle.text = trackTitle ?: @"";
+}
+
+- (void)setHasTrack:(BOOL)hasTrack {
+    if (_hasTrack == hasTrack) return;
+    _hasTrack = hasTrack;
+
+    // Collapsing exists to make room for the now-playing pill. With no track
+    // there is nothing to collapse to, so stay expanded — otherwise a scroll
+    // would shrink the dock to a pill showing nothing.
+    if (!hasTrack && self.mode == M27DockModeCollapsed) {
+        [self setMode:M27DockModeExpanded animated:YES];
+    }
+
+    [self setNeedsLayout];
+    // preferredHeight just changed, so the overlay strip has to be resized. The
+    // mode delegate is the existing "my height moved" signal.
+    if ([self.delegate respondsToSelector:@selector(floatingDockDidChangeMode:)]) {
+        [self.delegate floatingDockDidChangeMode:self];
+    }
 }
 
 - (void)setArtistName:(NSString *)artistName {
@@ -309,11 +390,7 @@ static const CGFloat kM27CircleButton = 44.0;
     for (NSInteger i = 0; i < count; i++) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
         button.tag = i;
-        button.titleLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightMedium];
-        button.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-        button.titleLabel.numberOfLines = 1;
         button.tintColor = UIColor.secondaryLabelColor;
-        // Avoid UIButtonConfiguration — simpler layout is more stable inside Music.
 
         NSString *title = nil;
         if ([self.delegate respondsToSelector:@selector(floatingDock:titleForTabIndex:)]) {
@@ -334,13 +411,32 @@ static const CGFloat kM27CircleButton = 44.0;
             icon = [UIImage systemImageNamed:sys withConfiguration:cfg];
         }
 
-        [button setImage:icon forState:UIControlStateNormal];
-        [button setTitle:title forState:UIControlStateNormal];
-        [button setTitleColor:UIColor.secondaryLabelColor forState:UIControlStateNormal];
-        button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-        // Stack icon above title.
-        button.titleEdgeInsets = UIEdgeInsetsMake(28, -22, 0, 0);
-        button.imageEdgeInsets = UIEdgeInsetsMake(-10, 12, 10, -12);
+        // UIButtonConfiguration keeps icon-above-title stable (old edgeInsets often
+        // collapsed to an empty tabs pill — stock Music tabs stayed visible alone).
+        if (@available(iOS 15.0, *)) {
+            UIButtonConfiguration *config = [UIButtonConfiguration plainButtonConfiguration];
+            config.image = icon;
+            config.title = title;
+            config.imagePlacement = NSDirectionalRectEdgeTop;
+            config.imagePadding = 2.0;
+            config.baseForegroundColor = UIColor.secondaryLabelColor;
+            UIFont *font = [UIFont systemFontOfSize:10 weight:UIFontWeightMedium];
+            config.titleTextAttributesTransformer =
+                ^NSDictionary<NSAttributedStringKey, id> *(NSDictionary<NSAttributedStringKey, id> *incoming) {
+                    NSMutableDictionary *out = [incoming mutableCopy] ?: [NSMutableDictionary dictionary];
+                    out[NSFontAttributeName] = font;
+                    return out;
+                };
+            config.contentInsets = NSDirectionalEdgeInsetsMake(4, 2, 4, 2);
+            button.configuration = config;
+        } else {
+            [button setImage:icon forState:UIControlStateNormal];
+            [button setTitle:title forState:UIControlStateNormal];
+            [button setTitleColor:UIColor.secondaryLabelColor forState:UIControlStateNormal];
+            button.titleLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightMedium];
+            button.titleLabel.numberOfLines = 1;
+            button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+        }
         [button addTarget:self action:@selector(tabTapped:) forControlEvents:UIControlEventTouchUpInside];
         [self.tabsStack addArrangedSubview:button];
         [self.tabButtons addObject:button];
@@ -362,29 +458,55 @@ static const CGFloat kM27CircleButton = 44.0;
     CGFloat width = self.bounds.size.width;
     CGFloat side = kM27DockSideInset;
 
-    // Collapsed
-    self.collapsedHost.frame = CGRectMake(side, 0, width - side * 2.0, kM27CollapsedHeight);
+    // Collapsed: three capsules, parked between the two extremes.
+    //
+    // 1.1.46 put this row at y = 0 (screen 660-712) so it overlapped Music's
+    // hidden mini player and a tap could be handed over — but it read as
+    // floating far too high. 1.1.47 dropped it to the tab slot (720-778), which
+    // looked right and left only ~3pt of overlap, so the tap died.
+    //
+    // Neither end is necessary. Music's mini player sits at 667-723 and the dock
+    // spans 660-778, so y = 30 puts this row at screen 690-742: 33pt of overlap,
+    // comfortably tappable, and visually centred between the mini pill's old
+    // position and the tab row's. Both requirements fit; they just could not be
+    // met at either extreme.
+    CGFloat pillH = kM27CollapsedPill;   // 52, not the 58 tab height — see below
+    CGFloat rowY = 30.0;
+    CGFloat capsule = pillH;
+
+    self.collapsedLeadingHost.frame = CGRectMake(side, rowY, capsule, pillH);
+    self.collapsedLeadingGlass.frame = self.collapsedLeadingHost.bounds;
+    [M27GlassChrome applyPaletteTintToGlass:self.collapsedLeadingGlass];
+    CGFloat redSide = kM27CircleButton;
+    self.redButton.frame = CGRectMake((capsule - redSide) / 2.0, (pillH - redSide) / 2.0,
+                                      redSide, redSide);
+
+    CGFloat trailingX = width - side - capsule;
+    self.collapsedTrailingHost.frame = CGRectMake(trailingX, rowY, capsule, pillH);
+    self.collapsedTrailingGlass.frame = self.collapsedTrailingHost.bounds;
+    [M27GlassChrome applyPaletteTintToGlass:self.collapsedTrailingGlass];
+    self.searchButton.frame = CGRectMake((capsule - kM27CircleButton) / 2.0,
+                                         (pillH - kM27CircleButton) / 2.0,
+                                         kM27CircleButton, kM27CircleButton);
+
+    CGFloat centreX = side + capsule + kM27CollapsedGap;
+    CGFloat centreW = MAX(0, trailingX - kM27CollapsedGap - centreX);
+    self.collapsedHost.frame = CGRectMake(centreX, rowY, centreW, pillH);
     self.collapsedGlass.frame = self.collapsedHost.bounds;
     [M27GlassChrome applyPaletteTintToGlass:self.collapsedGlass];
 
-    CGFloat pad = 10.0;
-    CGFloat yMid = (kM27CollapsedHeight - kM27CircleButton) / 2.0;
-    self.redButton.frame = CGRectMake(pad, yMid, kM27CircleButton, kM27CircleButton);
-    self.searchButton.frame = CGRectMake(CGRectGetWidth(self.collapsedGlass.bounds) - pad - kM27CircleButton,
-                                         yMid, kM27CircleButton, kM27CircleButton);
-
+    CGFloat pad = 8.0;
     CGFloat art = 40.0;
-    CGFloat artX = CGRectGetMaxX(self.redButton.frame) + 10.0;
-    CGFloat artY = (kM27CollapsedHeight - art) / 2.0;
-    self.collapsedArt.frame = CGRectMake(artX, artY, art, art);
+    CGFloat artY = (pillH - art) / 2.0;
+    self.collapsedArt.frame = CGRectMake(pad, artY, art, art);
 
     CGFloat playW = 36.0;
-    CGFloat playX = CGRectGetMinX(self.searchButton.frame) - 6.0 - playW;
-    self.collapsedPlayPause.frame = CGRectMake(playX, (kM27CollapsedHeight - playW) / 2.0, playW, playW);
+    CGFloat playX = MAX(0, centreW - pad - playW);
+    self.collapsedPlayPause.frame = CGRectMake(playX, (pillH - playW) / 2.0, playW, playW);
 
-    CGFloat textX = CGRectGetMaxX(self.collapsedArt.frame) + 8.0;
+    CGFloat textX = CGRectGetMaxX(self.collapsedArt.frame) + 9.0;
     CGFloat textW = MAX(0, playX - 6.0 - textX);
-    self.collapsedTitle.frame = CGRectMake(textX, artY + 2.0, textW, 16.0);
+    self.collapsedTitle.frame = CGRectMake(textX, artY + 3.0, textW, 16.0);
     self.collapsedArtist.frame = CGRectMake(textX, artY + 20.0, textW, 14.0);
 
     // Expanded
@@ -393,11 +515,19 @@ static const CGFloat kM27CircleButton = 44.0;
 
     UIView *miniHost = [self.expandedHost viewWithTag:0x4D324D48];
     UIView *tabsHost = [self.expandedHost viewWithTag:0x4D325448];
+
+    // Nothing playing: drop the pill and pull the tabs up to fill the strip.
+    // `hidden`, not alpha — this view must not hit-test either, and the pill
+    // carries the Now Playing tap.
+    BOOL showMini = self.hasTrack;
+    miniHost.hidden = !showMini;
+    CGFloat tabsY = showMini ? (kM27ExpandedMiniHeight + kM27ExpandedGap) : 0.0;
+
     miniHost.frame = CGRectMake(side, 0, width - side * 2.0, kM27ExpandedMiniHeight);
     self.miniGlass.frame = miniHost.bounds;
     [M27GlassChrome applyPaletteTintToGlass:self.miniGlass];
 
-    tabsHost.frame = CGRectMake(side, kM27ExpandedMiniHeight + kM27ExpandedGap,
+    tabsHost.frame = CGRectMake(side, tabsY,
                                 width - side * 2.0, kM27ExpandedTabHeight);
     self.tabsGlass.frame = tabsHost.bounds;
     [M27GlassChrome applyPaletteTintToGlass:self.tabsGlass];
@@ -421,14 +551,19 @@ static const CGFloat kM27CircleButton = 44.0;
 
 - (void)applyModeAnimated:(BOOL)animated {
     BOOL collapsed = (self.mode == M27DockModeCollapsed);
+    NSArray<UIView *> *collapsedHosts = @[ self.collapsedLeadingHost ?: [UIView new],
+                                           self.collapsedHost ?: [UIView new],
+                                           self.collapsedTrailingHost ?: [UIView new] ];
     void (^changes)(void) = ^{
-        self.collapsedHost.alpha = collapsed ? 1.0 : 0.0;
-        self.collapsedHost.transform = collapsed ? CGAffineTransformIdentity
-                                                 : CGAffineTransformMakeScale(0.96, 0.96);
+        for (UIView *host in collapsedHosts) {
+            host.alpha = collapsed ? 1.0 : 0.0;
+            host.transform = collapsed ? CGAffineTransformIdentity
+                                       : CGAffineTransformMakeScale(0.96, 0.96);
+            host.userInteractionEnabled = collapsed;
+        }
         self.expandedHost.alpha = collapsed ? 0.0 : 1.0;
         self.expandedHost.transform = collapsed ? CGAffineTransformMakeScale(0.96, 0.96)
                                                 : CGAffineTransformIdentity;
-        self.collapsedHost.userInteractionEnabled = collapsed;
         self.expandedHost.userInteractionEnabled = !collapsed;
         [self setNeedsLayout];
         [self layoutIfNeeded];
@@ -453,7 +588,15 @@ static const CGFloat kM27CircleButton = 44.0;
         BOOL selected = (button.tag == self.selectedTabIndex);
         UIColor *color = selected ? active : inactive;
         button.tintColor = color;
-        [button setTitleColor:color forState:UIControlStateNormal];
+        if (@available(iOS 15.0, *)) {
+            UIButtonConfiguration *config = button.configuration;
+            if (config) {
+                config.baseForegroundColor = color;
+                button.configuration = config;
+            }
+        } else {
+            [button setTitleColor:color forState:UIControlStateNormal];
+        }
         if (selected) {
             button.backgroundColor = [active colorWithAlphaComponent:0.12];
             button.layer.cornerRadius = 16.0;
@@ -491,6 +634,9 @@ static const CGFloat kM27CircleButton = 44.0;
 }
 
 - (void)nowPlayingTapped {
+    // No collapsed special case any more. At y = 30 the row overlaps Music's
+    // mini player by ~33pt in both modes, so the passthrough hands the touch
+    // over and this is only reached when a tap misses the mini player outright.
     if ([self.delegate respondsToSelector:@selector(floatingDockDidTapNowPlaying:)]) {
         [self.delegate floatingDockDidTapNowPlaying:self];
     }
@@ -510,24 +656,69 @@ static const CGFloat kM27CircleButton = 44.0;
 
 #pragma mark - Hit testing
 
+/// Is `point` on one of the dock's own buttons? Those always win.
+- (BOOL)m27PointOnOwnControl:(CGPoint)point {
+    NSArray<UIButton *> *buttons = (self.mode == M27DockModeCollapsed)
+        ? @[ self.redButton ?: (UIButton *)NSNull.null,
+             self.collapsedPlayPause ?: (UIButton *)NSNull.null,
+             self.searchButton ?: (UIButton *)NSNull.null ]
+        : @[ self.expandedPlayPause ?: (UIButton *)NSNull.null,
+             self.expandedNext ?: (UIButton *)NSNull.null ];
+
+    for (UIButton *button in buttons) {
+        if (![button isKindOfClass:UIButton.class]) continue;
+        if (button.hidden || !button.isEnabled) continue;
+        CGPoint p = [self convertPoint:point toView:button];
+        // Generous: these are small circles and a near miss should still be a
+        // press rather than falling through to Music.
+        if (CGRectContainsPoint(CGRectInset(button.bounds, -6.0, -6.0), p)) return YES;
+    }
+    return NO;
+}
+
+/// The pill body opens the full player, and only Music can do that.
+- (BOOL)m27ShouldPassThrough:(CGPoint)point {
+    if (![self.delegate respondsToSelector:@selector(floatingDock:shouldPassThroughPoint:)]) {
+        return NO;
+    }
+    return [self.delegate floatingDock:self shouldPassThroughPoint:point];
+}
+
 - (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
     // Full-width host frame is taller/wider than the glass pills. Only the
     // visible chrome should capture touches so Library content under the
     // clear regions stays tappable.
     if (self.mode == M27DockModeCollapsed) {
-        if (self.collapsedHost.userInteractionEnabled && self.collapsedHost.alpha > 0.01) {
-            CGPoint p = [self convertPoint:point toView:self.collapsedHost];
-            if ([self.collapsedHost pointInside:p withEvent:event]) return YES;
+        if (!self.collapsedHost.userInteractionEnabled || self.collapsedHost.alpha <= 0.01) {
+            return NO;
+        }
+        // The two end capsules are entirely ours — never pass those through.
+        for (UIView *capsule in @[ self.collapsedLeadingHost ?: [UIView new],
+                                   self.collapsedTrailingHost ?: [UIView new] ]) {
+            CGPoint p = [self convertPoint:point toView:capsule];
+            if ([capsule pointInside:p withEvent:event]) return YES;
+        }
+        CGPoint p = [self convertPoint:point toView:self.collapsedHost];
+        if ([self.collapsedHost pointInside:p withEvent:event]) {
+            if ([self m27PointOnOwnControl:point]) return YES;
+            // Artwork and titles: hand the touch to Music's mini player, which
+            // the pill now sits over in this mode too.
+            return ![self m27ShouldPassThrough:point];
         }
         return NO;
     }
     if (self.expandedHost.userInteractionEnabled && self.expandedHost.alpha > 0.01) {
         UIView *miniHost = [self.expandedHost viewWithTag:0x4D324D48];
         UIView *tabsHost = [self.expandedHost viewWithTag:0x4D325448];
-        if (miniHost) {
+        if (miniHost && !miniHost.hidden) {
             CGPoint p = [self convertPoint:point toView:miniHost];
-            if ([miniHost pointInside:p withEvent:event]) return YES;
+            if ([miniHost pointInside:p withEvent:event]) {
+                if ([self m27PointOnOwnControl:point]) return YES;
+                return ![self m27ShouldPassThrough:point];
+            }
         }
+        // The tab row is entirely ours — never pass those through, or a tap
+        // would reach Music's real tab bar underneath and switch tabs twice.
         if (tabsHost) {
             CGPoint p = [self convertPoint:point toView:tabsHost];
             if ([tabsHost pointInside:p withEvent:event]) return YES;

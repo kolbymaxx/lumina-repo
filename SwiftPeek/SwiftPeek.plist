@@ -1,10 +1,19 @@
 {
 	Filter = {
 		Bundles = (
-			"com.apple.Music"
+			"com.apple.Music",
+			"com.apple.podcasts",
+			"com.apple.tv",
+			"com.apple.Preferences",
+			"com.apple.SiriViewService",
+			"com.apple.assistantd"
 		);
 		Executables = (
-			"Music"
+			"Music",
+			"Podcasts",
+			"TV",
+			"SiriViewService",
+			"assistantd"
 		);
 	};
 }

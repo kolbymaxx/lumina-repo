@@ -1,6 +1,6 @@
 TARGET := iphone:clang:latest:15.0
 ARCHS = arm64 arm64e
-INSTALL_TARGET_PROCESSES = Music
+INSTALL_TARGET_PROCESSES = Music Podcasts TV
 # Default rootless; CI / local builds override with THEOS_PACKAGE_SCHEME=roothide
 THEOS_PACKAGE_SCHEME ?= rootless
 

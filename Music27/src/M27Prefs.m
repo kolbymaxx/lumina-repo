@@ -1,53 +1,20 @@
 #import "Music27.h"
-#import <dlfcn.h>
+#import "SPKRuntime.h"
 
 NSString *const M27PrefDomain = @"com.music27.tweak";
 NSString *const M27ThemeDidChangeNotification = @"M27ThemeDidChangeNotification";
 NSString *const M27PinsDidChangeNotification = @"M27PinsDidChangeNotification";
 const NSInteger M27MaxPins = 12;
 
-// Resolve jailbreak root the same way Siri27 does — RootHide jbroot, then
-// /var/jb, then rootful.
-static NSString *M27JailbreakRootPrefix(void) {
-    static NSString *prefix;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        prefix = @"";
-        const char *(*jbrootFn)(const char *) = (const char *(*)(const char *))dlsym(RTLD_DEFAULT, "jbroot");
-        if (jbrootFn) {
-            const char *p = jbrootFn("/");
-            if (p && p[0] != '\0' && strcmp(p, "/") != 0) {
-                prefix = [[NSString stringWithUTF8String:p] stringByStandardizingPath];
-                return;
-            }
-        }
-        Dl_info info = {0};
-        if (dladdr((const void *)M27JailbreakRootPrefix, &info) && info.dli_fname) {
-            NSString *dylibPath = [NSString stringWithUTF8String:info.dli_fname];
-            for (NSString *marker in @[ @"/Library/MobileSubstrate/DynamicLibraries/",
-                                       @"/usr/lib/TweakInject/" ]) {
-                NSRange r = [dylibPath rangeOfString:marker];
-                if (r.location != NSNotFound && r.location > 0) {
-                    prefix = [dylibPath substringToIndex:r.location];
-                    return;
-                }
-            }
-        }
-    });
-    return prefix;
+// Jailbreak root and prefs path resolution now live in SPKit — one copy shared
+// with SwiftPeek and CC27 instead of six that drift apart. M27JailbreakRoot
+// stays as the name the rest of Music27 calls.
+NSString *M27JailbreakRoot(void) {
+    return SPKJailbreakRoot();
 }
 
 static NSArray<NSString *> *M27PrefsCandidatePaths(void) {
-    NSString *rel = @"/var/mobile/Library/Preferences/com.music27.tweak.plist";
-    NSMutableArray<NSString *> *paths = [NSMutableArray array];
-    // Prefer /var/jb first (Dopamine rootless). Then jbroot (RootHide), then rootful.
-    [paths addObject:[@"/var/jb" stringByAppendingString:rel]];
-    NSString *jb = M27JailbreakRootPrefix();
-    if (jb.length > 0 && ![jb isEqualToString:@"/var/jb"]) {
-        [paths addObject:[jb stringByAppendingString:rel]];
-    }
-    [paths addObject:rel];
-    return paths;
+    return SPKPrefsCandidatePaths(M27PrefDomain);
 }
 
 static NSDictionary *M27ReadPrefsDictionary(void) {
@@ -135,6 +102,10 @@ static void M27WritePrefsDictionary(NSDictionary *dict) {
         seed[@"hostBlankFix111"] = @YES;
         seed[@"dockOverlayFix112"] = @YES;
         seed[@"dockSafeBoot115"] = @YES;
+        seed[@"miniFadeRecovery115"] = @YES;
+        seed[@"whiteScreenRecovery120"] = @YES;
+        seed[@"statusBarOverlay121"] = @YES;
+        seed[@"dockWindowLevel122"] = @YES;
         if (seed[@"enabled"] == nil) seed[@"enabled"] = @YES;
         seed[@"glassTabBar"] = @NO;
         seed[@"colorTheme"] = @NO;
@@ -152,6 +123,73 @@ static void M27WritePrefsDictionary(NSDictionary *dict) {
         CFPreferencesSetAppValue(CFSTR("colorTheme"), kCFBooleanFalse,
                                  (__bridge CFStringRef)M27PrefDomain);
         CFPreferencesSetAppValue(CFSTR("enabled"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesAppSynchronize((__bridge CFStringRef)M27PrefDomain);
+    } else if (_plist[@"dockWindowLevel122"] == nil) {
+        // 1.1.22: overlay window level back to Normal+2 (the 1.1.12 config).
+        // StatusBar-1 was what blanked Music in 1.1.19/1.1.21, not the cover
+        // plate, and that level is gone — so this migration does NOT force the
+        // dock OFF. Whatever the user last chose is kept.
+        NSMutableDictionary *seed = [_plist mutableCopy] ?: [NSMutableDictionary dictionary];
+        seed[@"dockWindowLevel122"] = @YES;
+        seed[@"statusBarOverlay121"] = @YES;
+        seed[@"whiteScreenRecovery120"] = @YES;
+        seed[@"miniFadeRecovery115"] = @YES;
+        seed[@"dockOverlayFix112"] = @YES;
+        seed[@"hostBlankFix111"] = @YES;
+        M27WritePrefsDictionary(seed);
+        _plist = [seed copy];
+        CFPreferencesSetAppValue(CFSTR("dockWindowLevel122"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("statusBarOverlay121"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("whiteScreenRecovery120"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("miniFadeRecovery115"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("dockOverlayFix112"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("hostBlankFix111"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesAppSynchronize((__bridge CFStringRef)M27PrefDomain);
+    } else if (_plist[@"whiteScreenRecovery120"] == nil) {
+        // 1.1.20: 1.1.19 full-screen white cover blanked iOS 17.3 light Music.
+        // Force dock OFF once so Library is usable after install.
+        NSMutableDictionary *seed = [_plist mutableCopy] ?: [NSMutableDictionary dictionary];
+        seed[@"whiteScreenRecovery120"] = @YES;
+        seed[@"miniFadeRecovery115"] = @YES;
+        seed[@"dockOverlayFix112"] = @YES;
+        seed[@"hostBlankFix111"] = @YES;
+        seed[@"glassTabBar"] = @NO;
+        M27WritePrefsDictionary(seed);
+        _plist = [seed copy];
+        CFPreferencesSetAppValue(CFSTR("whiteScreenRecovery120"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("miniFadeRecovery115"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("dockOverlayFix112"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("hostBlankFix111"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("glassTabBar"), kCFBooleanFalse,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesAppSynchronize((__bridge CFStringRef)M27PrefDomain);
+    } else if (_plist[@"miniFadeRecovery115"] == nil) {
+        // 1.1.15: recover from 1.1.14 MiniPlayer fade black/crash — force dock OFF once.
+        NSMutableDictionary *seed = [_plist mutableCopy] ?: [NSMutableDictionary dictionary];
+        seed[@"miniFadeRecovery115"] = @YES;
+        seed[@"dockOverlayFix112"] = @YES;
+        seed[@"hostBlankFix111"] = @YES;
+        seed[@"glassTabBar"] = @NO;
+        M27WritePrefsDictionary(seed);
+        _plist = [seed copy];
+        CFPreferencesSetAppValue(CFSTR("miniFadeRecovery115"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("dockOverlayFix112"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("hostBlankFix111"), kCFBooleanTrue,
+                                 (__bridge CFStringRef)M27PrefDomain);
+        CFPreferencesSetAppValue(CFSTR("glassTabBar"), kCFBooleanFalse,
                                  (__bridge CFStringRef)M27PrefDomain);
         CFPreferencesAppSynchronize((__bridge CFStringRef)M27PrefDomain);
     } else if (_plist[@"dockOverlayFix112"] == nil) {
@@ -180,6 +218,8 @@ static void M27WritePrefsDictionary(NSDictionary *dict) {
     _glassTabBarEnabled = [self boolForKey:@"glassTabBar" defaultValue:NO];
     _colorThemeEnabled = [self boolForKey:@"colorTheme" defaultValue:NO];
     _libraryPinsEnabled = [self boolForKey:@"libraryPins" defaultValue:NO];
+    _hideStockChromeEnabled = [self boolForKey:@"hideStockChrome" defaultValue:YES];
+    _nowPlayingGlassEnabled = [self boolForKey:@"nowPlayingGlass" defaultValue:NO];
 }
 
 @end

@@ -5,6 +5,9 @@ on:
   push:
     paths:
       - 'Music27/**'
+      # Music27 compiles SPKit as shared source, so a change there is a change
+      # to this tweak's binary.
+      - 'SPKit/**'
       - '.github/workflows/build-music27.yml'
 
 jobs:
@@ -68,6 +71,28 @@ jobs:
     name: Build roothide .deb
     runs-on: macos-14
     timeout-minutes: 45
+    # NON-BLOCKING ON PURPOSE, but not for the reason first written here.
+    #
+    # This was added after two 1.1.5x runs failed at `Setup Theos (roothide
+    # fork)`, and the note claimed the flake was specific to the roothide fork.
+    # It is not. On 1.1.53 the identical failure hit the **rootless** job:
+    #
+    #   Get "https://api.github.com/repos/theos/theos/commits/master":
+    #   tls: failed to verify certificate: x509: certificate signed by unknown authority
+    #
+    # Same step, same one-second failure, different repository URL — it is
+    # `waruhachi/theos-action`'s `cache-key` step reaching api.github.com, and
+    # it can hit either job. Four occurrences in one afternoon. Re-running the
+    # failed job has cleared it every time.
+    #
+    # So this flag is not flake insurance; if it were, it would need to be on
+    # both jobs and that would defeat the point of having CI. It stays for the
+    # support reason alone: the rootless package is verified on device every
+    # version, and the roothide one cannot be — the maintainer no longer runs a
+    # roothide jailbreak. The artifact is still produced whenever the toolchain
+    # cooperates, so roothide users keep getting builds; it is just not allowed
+    # to gate a package nobody can test. See Music27/README.md.
+    continue-on-error: true
 
     steps:
       - name: Checkout

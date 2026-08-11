@@ -30,6 +30,13 @@ Companion DSC frameworks (same IPSW dyld cache) also carry related Now Playing
 SwiftUI structs (`MediaCoreUI`, `MusicUI`) — useful for 17.x / MediaCore paths,
 but the X’s in-app UI classes live in `MusicApplication`.
 
+**Music27 dock prove (2026):** prefer a **fresh SwiftPeek dump on iOS 17
+Dopamine** before treating the 16.7.10 catalog as authoritative for floating
+mini / tab chrome. Stock Music on 17 already floats the mini-player; MediaCoreUI
+`MiniPlayer*` companions are more relevant there. Keep using
+`MusicApplication.MiniPlayerViewController` / `tabsViewController` names when
+the live dump still shows them — do not invent offsets from 16.7 alone.
+
 ## `swiftmd` result (MusicApplication)
 
 ```

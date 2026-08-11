@@ -22,6 +22,16 @@ extern const NSInteger M27MaxPins;
 @property (nonatomic, assign) BOOL glassTabBarEnabled;
 @property (nonatomic, assign) BOOL colorThemeEnabled;
 @property (nonatomic, assign) BOOL libraryPinsEnabled;
+/// Fade Music's own tab bar + mini player while the glass dock is up. Separate
+/// from the dock toggle so a chrome regression can be switched off without
+/// losing the dock — 1.1.14 blamed a MiniPlayer fade for a crash that was very
+/// likely the MPMusicPlayerController bug fixed in 1.1.26, so this needs its own
+/// off switch until it has proven itself.
+@property (nonatomic, assign) BOOL hideStockChromeEnabled;
+/// Restyle Music's full-screen player toward the iOS 27 look. Defaults OFF —
+/// this is a brand new hook on a screen nothing else touches, and it should
+/// prove itself on a device before it ships switched on.
+@property (nonatomic, assign) BOOL nowPlayingGlassEnabled;
 + (instancetype)shared;
 - (void)reload;
 @end
@@ -90,5 +100,28 @@ BOOL M27IsProtectedMusicHost(NSObject *_Nullable obj);
 
 /// Tear down / reinstall chrome from current prefs (kill switch + dock toggle).
 void M27ApplyChromeForCurrentPrefs(void);
+
+/// Hide the dock's overlay window while something full-screen is up.
+///
+/// The dock lives in its own window at `Normal + 2`, which is above Music's —
+/// so when the full-screen player is presented the pills keep floating over it.
+/// Music's own mini player and tab bar are inside the app's window and go away
+/// with the presentation; ours cannot, so it has to be told.
+void M27SetDockOverlayHidden(BOOL hidden);
+
+/// Tweak version, in one place. Bump here and in Music27/control together.
+/// Usable inside a literal: NSLog(@"[Music27 " M27_VERSION "] ...")
+#define M27_VERSION "1.1.55"
+#define M27VersionString @M27_VERSION
+
+/// Jailbreak root prefix ("" / "/var/jb" / RootHide jbroot).
+/// Thin wrapper over SPKit's SPKJailbreakRoot().
+NSString *M27JailbreakRoot(void);
+
+/// Append one line to $jbroot/var/mobile/Library/Music27/status.log and mirror
+/// the latest state to status.json. Readable in Filza — the point is that the
+/// dock's install path can be diagnosed from the phone, without a Console
+/// session attached to a Mac.
+void M27WriteStatus(NSString *stage, NSDictionary *info);
 
 NS_ASSUME_NONNULL_END
