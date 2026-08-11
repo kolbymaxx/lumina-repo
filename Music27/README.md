@@ -21,6 +21,41 @@ Settings live under **Settings → Music27**.
 3. Tap the **red button** to expand back to the 5-tab layout.
 4. Stock mini / tabs stay intact; glass pills float in a **passthrough bottom-strip window at `Normal + 2`** with no solid cover plate. The window must never be full-screen — see *Measured* under **Verify**.
 
+## Planned next: full-bleed album artwork
+
+Not started. Recorded here so it survives the conversation.
+
+**The change.** On the album / playlist detail page, iOS 26/27 runs the cover
+art **edge to edge** across the top — behind the nav bar, no inset square — and
+lets the artwork's colour carry down into the page background. iOS 17 shows a
+small centred square on a plain background. Reference screenshots: *Positions
+(Deluxe)*, stock 17 versus 27.
+
+**Colour matching.** The detail page picks up the artwork's palette rather than
+staying neutral. `colorTheme` already derives a palette (`M27ColorTheme`), so
+this is about applying it to the detail page specifically, not about building
+new colour extraction.
+
+**The constraint that matters: iOS 17+ album covers can be animated.** Several
+albums ship video artwork that plays on the detail page — the *Positions
+(Deluxe)* cover in the reference shots is one. So the artwork view cannot be
+swapped for a static `UIImageView`, and its layer cannot be replaced with a
+snapshot. Whatever resizes it has to resize **Music's own view**, leaving
+whatever is driving the animation attached to it. Verify against an animated
+cover, not just a still one, before believing it works.
+
+**What this session already established that applies here:**
+
+- The detail header is built **asynchronously** — `album_lookup_failed
+  play=nil shuffle=nil` fires at both `viewWillAppear` and the first
+  `viewDidLayoutSubviews`. Anything touching this page needs the same retry the
+  glass row uses.
+- The Play/Shuffle row lives in a `MusicApplication…Spacer` inside
+  `_TtCC16MusicApplication12DetailHeader11DetailsView`. Full-bleed artwork will
+  move relative to that row, so the glass row's placement will need rechecking.
+- Hiding a view you still need to hit-test needs a **mask**, never `alpha` or
+  `layer.opacity` — they are the same property. See 1.1.43.
+
 ## Blank-screen history
 
 | Version | Notes |
