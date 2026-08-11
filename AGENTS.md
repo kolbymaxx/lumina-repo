@@ -48,3 +48,30 @@ Understanding the split is the key thing for working here in a Linux cloud VM.
   landing page to GitHub Pages; nothing to run locally.
 - There is no automated unit-test suite; the `swiftmd` fixture run above is the
   canonical smoke test for host-tool changes.
+
+## One project per branch
+
+This is a monorepo with several independent tweaks in it. Keep a branch's
+changes inside the project it is named for.
+
+| Branch | Owns |
+|--------|------|
+| `claude/continue-*` | `Music27/` (and `SPKit/` only when Music27 needs a change there) |
+| `claude/swiftpeek-*` | `SwiftPeek/`, `tools/swiftpeek/` |
+
+**Why this is a rule and not a preference.** SwiftPeek was edited on both a
+SwiftPeek branch and a Music27 branch at the same time, by different agents, and
+the result is the three-way collision written up in
+`SwiftPeek/docs/MERGE_NOTES.md`: two branches bumped `tools/swiftpeek` to `0.6.0`
+independently, a third edits the same `api.py`, and the merge has to be resolved
+by hand at `0.7.0`. Eight commits on the Music27 branch touch `SwiftPeek/`,
+including SwiftPeek 0.4.0 and 0.4.1 themselves.
+
+It also makes CI misleading. `build-swiftpeek.yml` filters on `SwiftPeek/**`, so
+it fires on the Music27 branch whenever SwiftPeek is edited there — the workflow
+is behaving correctly and the branch is the thing that is wrong.
+
+If work on one project genuinely requires a change in another (a shared `SPKit`
+fix, or correcting a rule stated in another project's docs), make that change on
+the owning project's branch and note the dependency, rather than reaching across
+from wherever you happen to be standing.
