@@ -71,22 +71,27 @@ jobs:
     name: Build roothide .deb
     runs-on: macos-14
     timeout-minutes: 45
-    # NON-BLOCKING ON PURPOSE — this job's red X does not mean the tweak is
-    # broken, and letting it mean that was costing real signal.
+    # NON-BLOCKING ON PURPOSE, but not for the reason first written here.
     #
-    # Two 1.1.5x runs failed here, both at `Setup Theos (roothide fork)`, one
-    # second in, before a single source file was compiled:
+    # This was added after two 1.1.5x runs failed at `Setup Theos (roothide
+    # fork)`, and the note claimed the flake was specific to the roothide fork.
+    # It is not. On 1.1.53 the identical failure hit the **rootless** job:
     #
-    #   Get "https://api.github.com/repos/theos/sdks/commits/master":
+    #   Get "https://api.github.com/repos/theos/theos/commits/master":
     #   tls: failed to verify certificate: x509: certificate signed by unknown authority
     #
-    # The rootless job built the identical sources cleanly seconds earlier both
-    # times. One of those runs was a README-only commit. A failure mode that can
-    # flag a docs change as a broken build is not a signal worth blocking on.
+    # Same step, same one-second failure, different repository URL — it is
+    # `waruhachi/theos-action`'s `cache-key` step reaching api.github.com, and
+    # it can hit either job. Four occurrences in one afternoon. Re-running the
+    # failed job has cleared it every time.
     #
-    # The artifact is still produced whenever the step succeeds, so anyone on
-    # roothide keeps getting builds — but the package is unverified: the
-    # maintainer moved off roothide and cannot test it. See Music27/README.md.
+    # So this flag is not flake insurance; if it were, it would need to be on
+    # both jobs and that would defeat the point of having CI. It stays for the
+    # support reason alone: the rootless package is verified on device every
+    # version, and the roothide one cannot be — the maintainer no longer runs a
+    # roothide jailbreak. The artifact is still produced whenever the toolchain
+    # cooperates, so roothide users keep getting builds; it is just not allowed
+    # to gate a package nobody can test. See Music27/README.md.
     continue-on-error: true
 
     steps:

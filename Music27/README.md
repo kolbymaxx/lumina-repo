@@ -229,12 +229,19 @@ Manual / Filza: install `packages/com.music27.tweak_*.deb`, respring, force-quit
 | **rootless** (Dopamine) | `iphoneos-arm64`, files under `/var/jb` | **Supported.** Every version is verified on an iPhone 12 mini / iOS 17.3 before it is called done |
 | **roothide** | `iphoneos-arm64` | **Built, not verified.** Produced by CI whenever the toolchain cooperates, but the maintainer no longer runs a roothide jailbreak and cannot test it |
 
-The roothide CI job is `continue-on-error: true` deliberately. It has twice
-failed at `Setup Theos (roothide fork)` on a TLS certificate error, one second
-in, before compiling anything — once on a README-only commit — while the
-rootless job built the same sources cleanly. A red X that can mean "GitHub's
-certificate chain hiccuped" is worse than no X at all, because it teaches you to
-ignore the one that means something.
+The roothide CI job is `continue-on-error: true` deliberately — for the support
+reason above, and **not** as flake insurance.
+
+That distinction matters, because the first version of this note got it wrong.
+It said the TLS failure was specific to the roothide Theos fork. It is not: on
+1.1.53 the identical error hit the *rootless* job (`theos/theos` rather than
+`theos/sdks`). It comes from `waruhachi/theos-action`'s `cache-key` step
+reaching `api.github.com`, one second into the run, before anything is compiled,
+and it can land on either job — four times in one afternoon.
+
+**If a build goes red, check which step failed before believing it.** A failure
+inside `Setup Theos` is this flake; re-running the failed job has cleared it
+every time. A failure inside `Build Music27` is real.
 
 ## Verify on iOS 17 (Dopamine rootless)
 
