@@ -56,6 +56,55 @@ cover, not just a still one, before believing it works.
 - Hiding a view you still need to hit-test needs a **mask**, never `alpha` or
   `layer.opacity` — they are the same property. See 1.1.43.
 
+## Planned next: swipe the mini pill to skip / go back
+
+Not started. Recorded here so it survives the conversation.
+
+**The change.** On iOS 26/27 the mini player is swipeable: drag it left for the
+next track, right for the previous one, and the artwork and titles slide with
+your finger rather than cutting. Wanted on **both** dock modes — the expanded
+mini pill and the collapsed centre capsule.
+
+**It is possible, and the plumbing is already here.** `M27NextTrack` sends
+MediaRemote command 4; previous is command 5 through the same
+`MRMediaRemoteSendCommand`, which is proven safe in-process (play/pause and skip
+already use it, and it is what replaced the `MPMusicPlayerController` call that
+crashed Music in 1.1.26).
+
+**The part that needs designing: a gesture on our pill would never fire.**
+The pill body deliberately declines touches — `pointInside:` returns `NO` over
+the artwork and titles so the touch reaches Music's masked mini player
+underneath and Music expands the full player natively (1.1.41, confirmed working
+in 1.1.44). A `UIGestureRecognizer` attached to a view that never receives
+touches never sees them, so the obvious implementation is dead on arrival, and
+simply taking the touch back would trade tap-to-open-the-player for
+swipe-to-skip. Those two must both work.
+
+Three ways out, in preference order:
+
+1. **Attach the recogniser to Music's own mini player**, the view the
+   passthrough already targets and already un-masks for hit-testing, with
+   `cancelsTouchesInView = NO` and a delegate permitting simultaneous
+   recognition, so Music's own tap-to-expand still fires. This is a mutation of
+   a host view rather than a read, so it needs the usual care — install once,
+   remove on teardown, and confirm Music's own gestures still work.
+2. **Recognise on the dock but forward the touch**, using a
+   `UIPanGestureRecognizer` on the strip window with `cancelsTouchesInView =
+   NO`. Whether the touch is delivered at all still depends on `hitTest:`, so
+   this needs verifying before it is built on.
+3. **Split the regions** — swipe on the titles, passthrough on the artwork.
+   Least faithful to the reference and the least worth doing.
+
+**Use a pan, not a swipe.** `UISwipeGestureRecognizer` gives a discrete flick
+with no feedback; the reference is interactive — the content tracks the finger
+and settles. That means a pan driving a translation on the pill's content, a
+threshold on release, and a snap-back when the threshold is not met.
+
+**Watch for:** a horizontal pan on the pill must not fight the scroll-collapse
+logic (which watches vertical scrolling), and the collapsed centre capsule is
+only ~52pt tall, so the recogniser needs a direction bias rather than claiming
+every touch that moves.
+
 ## Blank-screen history
 
 | Version | Notes |
