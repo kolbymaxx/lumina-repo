@@ -44,6 +44,37 @@ snapshot. Whatever resizes it has to resize **Music's own view**, leaving
 whatever is driving the animation attached to it. Verify against an animated
 cover, not just a still one, before believing it works.
 
+**Measured on device (1.1.50, `album_tree`, iPhone 12 mini / 17.3, 375×812):**
+
+```
+safe_top = 94
+0  UIView                                             {0,0,375,812}    bg 1.00
+1  MusicApplication…VerticalStackViewController.ScrollView             bg 1.00
+2  MusicApplication.TintColorObservingView                             bg 0.00
+3  UICollectionView                                   {0,0,375,812}    bg 1.00
+4  MusicApplication.ContainerDetailHeaderReusableView  {0,94,375,414}   bg 1.00
+5  MusicApplication.DetailHeader                       {0,94,375,414}   bg 0.00
+6  UIView                                              {72,101,231,231} bg 0.00   ← artwork
+6  MusicApplication…DetailHeader.DetailsView           {20,332,335,176} bg 0.00
+```
+
+- **The artwork is the 231×231 `UIView` at `{72, 101}`** — centred (72 + 231 +
+  72 = 375) and square, sitting directly above `DetailsView` (101 + 231 = 332).
+  It is a plain `UIView` with no image of its own, so the thing actually drawing
+  the cover is a level or two deeper than the depth-6 cap; the next dump needs a
+  deeper walk rooted at this view, not at the page.
+- **`DetailHeader` starts at y = 94, exactly `safe_top`.** Full-bleed means the
+  artwork has to escape both the header's inset *and* the header's own origin —
+  it must reach y = 0 and span the full 375, so this is not a matter of widening
+  one view inside its parent's bounds.
+- **The colour wash has never been visible, and now we know why.** It is
+  inserted at layer index 0 of `vc.view` with `zPosition = -1000`, and the
+  `UICollectionView` above it reports **`bg 1.00`** — a fully opaque background
+  covering the whole page, with `ContainerDetailHeaderReusableView` opaque on
+  top of that. So *Artwork Color Theme* has been painting behind an opaque wall
+  regardless of the toggle. The fix is to colour the collection view's own
+  background (or insert above it), not to insert further back.
+
 **What this session already established that applies here:**
 
 - The detail header is built **asynchronously** — `album_lookup_failed
@@ -145,6 +176,7 @@ every touch that moves.
 | **1.1.27** | Stray sixth tab: Music reports **6 view controllers but shows 5 tabs**, and the extra one rendered as "Tab 5". Dock indices are now mapped to the controllers that actually own a tab bar item |
 | **1.1.28** | Hides Music's own tab bar + mini player behind the dock. Worked — but hiding with `alpha` also made the mini player **un-hit-testable**, so the dock's Now Playing pill went dead |
 | **1.1.29** | Hides via `layer.opacity` instead of `alpha`. ~~`hitTest:` refuses any view with `alpha < 0.01`, so `alpha` was hiding the very thing it needed to find.~~ **Wrong — see 1.1.43.** `UIView.alpha` is backed by `CALayer.opacity`; they are the same property, so this changed nothing. The view stayed un-hit-testable for fourteen more versions |
+| **1.1.51** | **Two glyphs sized by two unrelated rules cannot match.** "The download one is much smaller than the shuffle button we created." It was: shuffle is an SF Symbol rendered at a chosen point size, while download is a photograph of Apple's control — an arrow drawn small inside a 28pt canvas with whatever margin Apple left around it. Nothing was ever going to make those agree. So neither picks its own size now. Every glyph in the row is trimmed to its **real alpha bounding box** and redrawn centred in one fixed 22pt box, aspect preserved. **Contrast is stretched too**, because plain desaturation left Apple's mid-grey arrow reading lighter than our solid-black shuffle: the opaque pixels' own min and max luminance are measured and remapped, so a single-colour glyph (the plain arrow, the finished tick) has no spread and lands flat at full `labelColor` matching shuffle exactly, while a progress ring does have spread and keeps its dark arc and pale track apart. The light end stops at 165 rather than white so a track stays visible against the glass. **The placeholder flash goes with it**: the `arrow.down` placeholder now runs through the identical path as the mirror, so the handover has nothing left to show — it was visible only because the two were sized differently |
 | **1.1.50** | **Keep the mirror, drop the colour.** "Our black and white download logo appears for a second and then disappears, then it just does the original red one." Both halves are exactly what the code did: the button starts as our `arrow.down` in `labelColor`, and the first mirror tick replaces it with a photograph of Apple's red control. Drawing our own animated ring instead would mean inventing a state machine (idle / downloading / done) and a progress source, and every language-independent signal for those is a guess — the mirror already knows all of it correctly, in every language, including states Apple has not shipped. Only the colour is wrong. So the snapshot is converted to **luminance with alpha preserved**: the red ring becomes mid grey, the pale unfilled track stays pale, and the progress animation survives because the conversion runs on every frame the mirror takes. A template image would be simpler and wrong — templates use alpha only, so the ring's opaque grey track would flood to solid black and the progress would vanish at every percentage. **Skip glyph cropped:** the circle buttons set `cornerRadius = kM27CircleButton / 2` — half of *44* — but the mini pill lays them out at **34pt**, and Core Animation clamps a radius to half the shorter side, so `clipsToBounds` masked the button to a 34pt circle and `forward.fill`'s outer tip fell outside it. Clipping is off (the translucent background is painted by the layer and stays rounded regardless) and the symbol drops 20pt → 18pt. **Album page measured:** `album_tree` records class, frame in page coordinates, background alpha and image dimensions, 0.6s after the page appears so the asynchronous header has been built. Two open questions ride on it — which view holds the artwork (it is not in `DetailHeader.DetailsView`, the only part of this page identified so far), and whether an opaque background has been burying the colour wash at layer index 0 all along |
 | **1.1.49** | **The edge light was a ruled line, and the download button was frozen by its own change check.** The highlight was a flat 1pt bar of white at alpha 0.55 running across the top of every pill — which is why it read as "a slight grey line, not a true refraction glass look". Light on a curved edge falls off as the surface turns away and dies out where the capsule curves, so it is now a view backed by a vertical gradient (0.50 white at the very top, gone by 3pt) masked by a horizontal one that tapers to nothing at each end. The corner inset drops from `radius * 0.7` to `radius * 0.35`, since the taper keeps the light off the corners by fading rather than by stopping dead. **Download button:** the mirroring worked — the user's own screenshot shows the red partial ring and stop square in the glass button — but `mirrorDownloadState` gated the re-render on the stock control's `accessibilityLabel` changing, and that label stays "Downloading" for the entire download while the ring fills. So one frame of the ring was captured and held. The snapshot is unconditional now (a 28×28 layer render, cheap enough to do several times a second) and the label is used only to decide whether the transition is worth a `status.log` line; the poll also moves from 1.0s to 0.25s |
 | **1.1.48** | **The collapsed row's position was never a choice between the two extremes.** 1.1.46 put it at dock y 0 (screen 660–712): tappable, but floating far too high. 1.1.47 dropped it to y 60 (720–778): correct-looking, ~3pt of overlap, tap dead. Music's mini player is at 667–723 and the dock spans 660–778, so **y = 30** lands the row at 690–742 — 33pt of overlap, comfortably tappable, and visually between the two. Both requirements fit at once, which is why treating it as a trade kept producing a build that failed one of them. The collapsed special case in `nowPlayingTapped` goes away with it, since the passthrough now reaches in both modes. **"It gets fat when it collapses":** it did — the capsules were laid out at the 58pt tab-row height, so collapsing swapped a 52pt pill for a 58pt one. They use the mini pill's height now. The collapsed affordance also changes from a music-note list on a solid red tile to a red-tinted **house** glyph sitting in the glass with no tile, matching the reference |

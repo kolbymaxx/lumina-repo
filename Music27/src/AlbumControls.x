@@ -9,6 +9,24 @@ static const NSInteger kM27AlbumControlsTag = 0x4D324143; // 'M2AC'
 static const CGFloat kM27Circle = 52.0;
 static const CGFloat kM27PlayHeight = 52.0;
 
+/// Optical size every glyph in this row is normalised to.
+///
+/// "The download one is much smaller than the shuffle button we created."
+/// It was, and the two could not have matched by construction: shuffle was an
+/// SF Symbol at a chosen point size, while download was a photograph of Apple's
+/// control — an arrow drawn small inside a 28pt canvas, scaled by whatever
+/// margin Apple left around it. Two unrelated sizing rules cannot agree.
+///
+/// So neither one picks its own size now. Both are trimmed to their glyph's
+/// actual bounding box and redrawn to this box, which is the only way a
+/// rendered symbol and a captured one can be made to match.
+static const CGFloat kM27GlyphBox = 22.0;
+
+// Defined further down, next to the mirroring they share. Declared here because
+// the controls view is built above them.
+static UIImage *M27NormalizedGlyph(UIImage *source, BOOL dark);
+static UIImage *M27SymbolGlyph(NSString *name, BOOL dark);
+
 static BOOL M27IsAlbumDetailController(UIViewController *vc) {
     if (!vc) return NO;
     if (M27IsProtectedMusicHost(vc)) return NO;
@@ -163,6 +181,7 @@ static void M27FireControl(UIView *control) {
 @property (nonatomic, copy) NSString *lastDownloadLabel;
 @property (nonatomic, assign) BOOL downloadMirrored;
 - (BOOL)mirrorDownloadState;
+- (void)m27ApplyStaticGlyphs;
 @end
 
 @implementation M27AlbumControlsView
@@ -182,8 +201,6 @@ static void M27FireControl(UIView *control) {
             [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
 
         _shuffleButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        [_shuffleButton setImage:[UIImage systemImageNamed:@"shuffle" withConfiguration:cfg]
-                        forState:UIControlStateNormal];
         _shuffleButton.tintColor = UIColor.labelColor;
         [_shuffleButton addTarget:self action:@selector(shuffleTapped)
                  forControlEvents:UIControlEventTouchUpInside];
@@ -220,14 +237,41 @@ static void M27FireControl(UIView *control) {
         [_playGlass.contentView addSubview:_playButton];
 
         _downloadButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        [_downloadButton setImage:[UIImage systemImageNamed:@"arrow.down" withConfiguration:cfg]
-                         forState:UIControlStateNormal];
         _downloadButton.tintColor = UIColor.labelColor;
         [_downloadButton addTarget:self action:@selector(downloadTapped)
                   forControlEvents:UIControlEventTouchUpInside];
         [_downloadGlass.contentView addSubview:_downloadButton];
+
+        [self m27ApplyStaticGlyphs];
     }
     return self;
+}
+
+/// Shuffle, and the download glyph before the mirror has anything to show.
+///
+/// Both go through the same normaliser the mirror uses, which is the point: the
+/// placeholder arrow and the mirrored arrow come out at the same box size and
+/// the same weight, so the handover between them has nothing left to show. It
+/// was visible before because they were sized by two unrelated rules.
+- (void)m27ApplyStaticGlyphs {
+    BOOL dark = NO;
+    if (@available(iOS 13.0, *)) {
+        dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+    }
+    UIImage *shuffle = M27SymbolGlyph(@"shuffle", dark);
+    if (shuffle) {
+        [self.shuffleButton setImage:[shuffle imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal]
+                            forState:UIControlStateNormal];
+    }
+    // Only until the first mirror tick — after that the stock control's own
+    // glyph is the truth, in whatever state it is in.
+    if (!self.downloadMirrored) {
+        UIImage *arrow = M27SymbolGlyph(@"arrow.down", dark);
+        if (arrow) {
+            [self.downloadButton setImage:[arrow imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal]
+                                 forState:UIControlStateNormal];
+        }
+    }
 }
 
 - (void)layoutSubviews {
@@ -269,6 +313,9 @@ static void M27FireControl(UIView *control) {
         self.playButton.tintColor = UIColor.whiteColor;
         [self.playButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     }
+    // The glyphs are baked images now, not tinted templates, so a light/dark
+    // switch has to redraw them. The mirrored one comes back on the next tick.
+    [self m27ApplyStaticGlyphs];
 }
 
 - (void)shuffleTapped { M27FireControl(self.stockShuffle); }
@@ -333,7 +380,22 @@ static UIImage *M27SnapshotStockGlyph(UIView *stock) {
 /// A template image would be simpler and wrong: templates use alpha only, so the
 /// ring's unfilled track — opaque grey, alpha 1 — would flood to solid black and
 /// the progress would become invisible at every percentage.
-static UIImage *M27MonochromeGlyph(UIImage *source, BOOL dark) {
+///
+/// 1.1.51 adds the other two halves of "make them match".
+///
+/// **Contrast is stretched, not just desaturated.** A straight luminance map
+/// left Apple's mid-grey arrow as mid grey next to our solid-black shuffle, so
+/// they read as different weights. The opaque pixels' own min and max luminance
+/// are measured and remapped, which drives the darkest part of the glyph to full
+/// `labelColor` and holds the lightest at a visible grey. A single-colour glyph —
+/// the plain arrow, the finished tick — has no spread, so it lands flat at
+/// `labelColor` and matches shuffle exactly; a progress ring does have spread,
+/// so its dark arc and pale track stay distinguishable.
+///
+/// **Size is normalised.** The glyph is trimmed to its real bounding box and
+/// redrawn to `kM27GlyphBox`, so a captured 28pt canvas with unknown margins and
+/// a rendered SF Symbol end up the same optical size.
+static UIImage *M27NormalizedGlyph(UIImage *source, BOOL dark) {
     if (!source) return nil;
     CGImageRef cg = source.CGImage;
     if (!cg) return source;
@@ -357,36 +419,130 @@ static UIImage *M27MonochromeGlyph(UIImage *source, BOOL dark) {
                                              kCGBitmapByteOrder32Big);
     if (ctx) {
         CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), cg);
+
+        // Pass 1: the glyph's real extent, and its luminance range. Only pixels
+        // solid enough to be glyph rather than antialiasing count towards the
+        // range, or one faint edge pixel sets the black point for everything.
+        size_t minX = w, minY = h, maxX = 0, maxY = 0;
+        float minLuma = 255.0f, maxLuma = 0.0f;
+        BOOL any = NO;
+        for (size_t y = 0; y < h; y++) {
+            for (size_t x = 0; x < w; x++) {
+                size_t i = y * stride + x * 4;
+                uint8_t a = pixels[i + 3];
+                if (a < 8) continue;
+                any = YES;
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+                if (a < 200) continue;
+                float inv = 255.0f / (float)a;
+                float luma = 0.2126f * (float)pixels[i + 0] * inv +
+                             0.7152f * (float)pixels[i + 1] * inv +
+                             0.0722f * (float)pixels[i + 2] * inv;
+                if (luma > 255.0f) luma = 255.0f;
+                if (luma < minLuma) minLuma = luma;
+                if (luma > maxLuma) maxLuma = luma;
+            }
+        }
+
+        // Below this spread the glyph is one colour and should come out flat at
+        // labelColor; above it there is a ring and a track to keep apart.
+        float span = maxLuma - minLuma;
+        BOOL stretch = (span >= 40.0f);
+        // The light end stops short of white so a progress track stays visible
+        // against the glass rather than dissolving into it.
+        const float kLightEnd = 165.0f;
+
         for (size_t i = 0; i < h * stride; i += 4) {
             uint8_t a = pixels[i + 3];
             if (a == 0) continue;
-            // Un-premultiply before measuring luminance, or a semi-transparent
-            // pixel reads darker than it looks and the ring's antialiased edge
-            // comes out muddy.
-            float inv = 255.0f / (float)a;
-            float r = (float)pixels[i + 0] * inv;
-            float g = (float)pixels[i + 1] * inv;
-            float b = (float)pixels[i + 2] * inv;
-            float luma = 0.2126f * r + 0.7152f * g + 0.0722f * b;
-            if (luma > 255.0f) luma = 255.0f;
-            if (dark) luma = 255.0f - luma;
-            uint8_t v = (uint8_t)((luma * (float)a) / 255.0f + 0.5f);  // re-premultiply
+            float t = 0.0f;
+            if (stretch) {
+                float inv = 255.0f / (float)a;
+                float luma = 0.2126f * (float)pixels[i + 0] * inv +
+                             0.7152f * (float)pixels[i + 1] * inv +
+                             0.0722f * (float)pixels[i + 2] * inv;
+                t = (luma - minLuma) / span;
+                if (t < 0.0f) t = 0.0f;
+                if (t > 1.0f) t = 1.0f;
+            }
+            float out = dark ? (255.0f - t * kLightEnd) : (t * kLightEnd);
+            uint8_t v = (uint8_t)((out * (float)a) / 255.0f + 0.5f);  // re-premultiply
             pixels[i + 0] = v;
             pixels[i + 1] = v;
             pixels[i + 2] = v;
         }
+
         CGImageRef out = CGBitmapContextCreateImage(ctx);
         if (out) {
-            result = [UIImage imageWithCGImage:out
+            CGImageRef cropped = NULL;
+            if (any) {
+                CGRect box = CGRectMake(minX, minY, maxX - minX + 1, maxY - minY + 1);
+                cropped = CGImageCreateWithImageInRect(out, box);
+            }
+            result = [UIImage imageWithCGImage:(cropped ?: out)
                                          scale:source.scale
                                    orientation:source.imageOrientation];
+            if (cropped) CGImageRelease(cropped);
             CGImageRelease(out);
         }
         CGContextRelease(ctx);
     }
     free(pixels);
     CGColorSpaceRelease(space);
-    return result;
+
+    // Redraw the trimmed glyph centred in a fixed box, scaled to fit. Aspect is
+    // preserved — a wide glyph fills the width, a tall one the height — so the
+    // arrow and the ring occupy the same visual weight as shuffle without being
+    // distorted to a square.
+    CGSize glyph = result.size;
+    if (glyph.width < 0.5 || glyph.height < 0.5) return result;
+    CGFloat fit = kM27GlyphBox / MAX(glyph.width, glyph.height);
+    CGSize drawn = CGSizeMake(glyph.width * fit, glyph.height * fit);
+    CGRect target = CGRectMake((kM27GlyphBox - drawn.width) / 2.0,
+                               (kM27GlyphBox - drawn.height) / 2.0,
+                               drawn.width, drawn.height);
+
+    UIGraphicsImageRendererFormat *fmt = UIGraphicsImageRendererFormat.preferredFormat;
+    fmt.opaque = NO;
+    UIGraphicsImageRenderer *renderer =
+        [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(kM27GlyphBox, kM27GlyphBox)
+                                               format:fmt];
+    UIImage *boxed = [renderer imageWithActions:^(UIGraphicsImageRendererContext *rctx) {
+        (void)rctx;
+        [result drawInRect:target];
+    }];
+    return boxed ?: result;
+}
+
+/// An SF Symbol put through the same normaliser as the mirror.
+///
+/// The point of routing our own glyphs through this rather than trusting a point
+/// size: the placeholder arrow and the mirrored one then come out identical, so
+/// the swap from one to the other — the "fake one appearing before the real
+/// one" — has nothing left to show.
+static UIImage *M27SymbolGlyph(NSString *name, BOOL dark) {
+    UIImageSymbolConfiguration *cfg =
+        [UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightSemibold];
+    UIImage *symbol = [UIImage systemImageNamed:name withConfiguration:cfg];
+    if (!symbol) return nil;
+
+    // Flatten to a bitmap first. A symbol image is vector-backed and its
+    // `CGImage` can be nil, which the normaliser would have to refuse — and
+    // refusing is how the two glyphs ended up different sizes in the first
+    // place. Drawn plain it comes out black on transparent, which is what the
+    // normaliser expects: it decides the final value, and inverts for dark mode.
+    UIGraphicsImageRendererFormat *fmt = UIGraphicsImageRendererFormat.preferredFormat;
+    fmt.opaque = NO;
+    UIGraphicsImageRenderer *renderer =
+        [[UIGraphicsImageRenderer alloc] initWithSize:symbol.size format:fmt];
+    UIImage *flat = [renderer imageWithActions:^(UIGraphicsImageRendererContext *rctx) {
+        (void)rctx;
+        [symbol drawInRect:CGRectMake(0, 0, symbol.size.width, symbol.size.height)];
+    }];
+    return flat ? M27NormalizedGlyph(flat, dark) : nil;
 }
 
 /// Returns YES when the state changed, so callers log only real transitions.
@@ -415,7 +571,7 @@ static UIImage *M27MonochromeGlyph(UIImage *source, BOOL dark) {
     if (@available(iOS 13.0, *)) {
         dark = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
     }
-    UIImage *mono = M27MonochromeGlyph(shot, dark);
+    UIImage *mono = M27NormalizedGlyph(shot, dark);
 
     // Original rendering mode, not template — the mono conversion has already
     // put the shading where it belongs, and a template would flatten it back.
