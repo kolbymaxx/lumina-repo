@@ -317,11 +317,19 @@ static UIImage *M27SnapshotStockGlyph(UIView *stock) {
     UIView *stock = self.stockDownload;
     if (!stock) return NO;
 
-    // The accessibility label is the change signal, not the content: it moves
-    // when Music switches between download / stop / done. Re-rendering only on a
-    // change keeps this a string compare once a second rather than a redraw.
+    // RE-RENDER EVERY TICK, NOT ONLY WHEN THE LABEL MOVES.
+    //
+    // "Download button is always a static image and not showing the live
+    // downloading progress." The mirroring works — the screenshot shows the red
+    // ring and stop square — but it was frozen at the first frame, because the
+    // accessibility label was used as the change signal and it stays
+    // "Downloading" for the whole download while the ring advances behind it.
+    // A label that does not change meant a glyph that never redrew.
+    //
+    // So the snapshot is unconditional. It is a 28x28 layer render; doing it a
+    // few times a second costs nothing next to being wrong.
     NSString *label = stock.accessibilityLabel ?: @"";
-    if ([label isEqualToString:self.lastDownloadLabel] && self.downloadMirrored) return NO;
+    BOOL labelChanged = !self.downloadMirrored || ![label isEqualToString:self.lastDownloadLabel];
 
     UIImage *shot = M27SnapshotStockGlyph(stock);
     if (!shot) return NO;
@@ -333,7 +341,9 @@ static UIImage *M27SnapshotStockGlyph(UIView *stock) {
     self.downloadButton.accessibilityLabel = stock.accessibilityLabel;
     self.lastDownloadLabel = label;
     self.downloadMirrored = YES;
-    return YES;
+    // Only a real state change is worth a log line; a progress ring ticking
+    // would otherwise write to disk several times a second.
+    return labelChanged;
 }
 
 - (void)didMoveToWindow {
@@ -343,10 +353,13 @@ static UIImage *M27SnapshotStockGlyph(UIView *stock) {
     if (!self.window) return;
 
     // Nothing tells us the download state moved — the stock control changes its
-    // own glyph without laying us out. A one-second poll while this row is on
-    // screen is cheap and stops the moment it leaves the window.
+    // own glyph without laying us out. A poll while this row is on screen is
+    // cheap and stops the moment it leaves the window. It was one second up to
+    // 1.1.48, which is far too slow for a progress ring: the glass button held
+    // one frozen frame of the ring for a second at a time, which is exactly what
+    // "always a static image" looks like.
     __weak typeof(self) weakSelf = self;
-    self.mirrorTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
+    self.mirrorTimer = [NSTimer scheduledTimerWithTimeInterval:0.25
                                                        repeats:YES
                                                          block:^(NSTimer *timer) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
