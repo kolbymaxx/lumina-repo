@@ -106,14 +106,22 @@ static UIView *M27FindDownloadControl(UIViewController *vc) {
         UIView *view = [item valueForKey:@"view"];
         if (!view) continue;
         NSString *desc = view.description.lowercaseString;
-        if ([desc containsString:@"download"] || [desc containsString:@"arrow.down"]) {
+        NSString *label = (view.accessibilityLabel ?: @"").lowercaseString;
+        if ([desc containsString:@"download"] || [desc containsString:@"arrow.down"] ||
+            [label containsString:@"download"]) {
             return view;
         }
-        for (UIView *sub in view.subviews) {
-            if ([sub isKindOfClass:UIImageView.class] || [sub isKindOfClass:UIButton.class]) {
-                return view;
-            }
-        }
+        // NO "ANY ITEM WITH AN IMAGE OR A BUTTON IN IT" FALLBACK.
+        //
+        // That is what used to be here, and it would happily return the "•••"
+        // more-menu — the first right-hand item on this page — as the download
+        // control, and then hide it. It has never fired on 17.3 (all 74
+        // `album_controls` samples in the 1.1.52 log resolve download to the
+        // 28x28 MusicCoreUI.SymbolButton in the header, via the search below),
+        // which is the only reason it has not caused visible damage. A matcher
+        // that is wrong by construction and merely unreached is still wrong;
+        // this project has already spent three builds on "find a control and
+        // fire it" for exactly this reason.
     }
     UIView *byTitle = M27FindControlWithTitle(vc.view, @[ @"download" ], NO, 0);
     if (byTitle) return byTitle;
@@ -654,17 +662,44 @@ static NSString *M27DescribeControl(UIView *view) {
 }
 
 /// Name the nav bar's right-hand items, without touching them.
+///
+/// 1.1.52's version reported `UIBarButtonItem/-/noimg` three times over and
+/// nothing else, which says only that these items carry neither an
+/// accessibility label nor an `image` — the glyph is drawn by a view inside
+/// them. So go one level in: the item's `customView`, the view UIKit actually
+/// installed for it, and that view's immediate subviews.
+///
+/// Read-only. `valueForKey:@"view"` is the item's own backing view, which is the
+/// same lookup `M27FindDownloadControl` has always done here.
 static NSString *M27DescribeBarItems(NSArray<UIBarButtonItem *> *items) {
     if (items.count == 0) return @"none";
     NSMutableArray<NSString *> *out = [NSMutableArray array];
     for (UIBarButtonItem *item in items) {
         if (out.count >= 4) break;
-        [out addObject:[NSString stringWithFormat:@"%@/%@/%@",
-                        NSStringFromClass(item.class),
-                        item.accessibilityLabel ?: @"-",
-                        item.image ? @"img" : @"noimg"]];
+
+        UIView *view = item.customView;
+        NSString *origin = @"custom";
+        if (!view) {
+            @try { view = [item valueForKey:@"view"]; } @catch (__unused NSException *ex) {}
+            origin = view ? @"itemview" : @"none";
+        }
+
+        NSMutableArray<NSString *> *kids = [NSMutableArray array];
+        for (UIView *sub in view.subviews) {
+            if (kids.count >= 3) break;
+            [kids addObject:NSStringFromClass(sub.class)];
+        }
+
+        // label / where the view came from / class+frame / visible? / children
+        [out addObject:[NSString stringWithFormat:@"%@|%@|%@|a%.1f%@|%@",
+                        item.accessibilityLabel ?: (view.accessibilityLabel ?: @"-"),
+                        origin,
+                        view ? M27DescribeControl(view) : @"nil",
+                        view ? view.alpha : 0.0,
+                        (view && view.hidden) ? @"H" : @"",
+                        kids.count ? [kids componentsJoinedByString:@"+"] : @"-"]];
     }
-    return [out componentsJoinedByString:@","];
+    return [out componentsJoinedByString:@" ,"];
 }
 
 static BOOL M27InstallAlbumControls(UIViewController *vc) {
@@ -976,6 +1011,30 @@ static void M27ReportAlbumTree(UIViewController *vc) {
             M27ReportAlbumTree(strongSelf);
         }
     });
+
+    // SAMPLE THE NAV BAR TWICE, BECAUSE THE THING WE ARE CHASING IS A CHANGE.
+    //
+    // "It still has the flashing of the button problem." The download control
+    // in the header is accounted for — 1.1.52 closed that gap from ~1.2s
+    // average to ~0.3s, measured. What is left is the red button at the *top*,
+    // which is in the navigation bar and therefore not in `vc.view` at all.
+    //
+    // A single sample cannot show a flash. Two, either side of the moment the
+    // header finishes building, show whether the item goes away on its own —
+    // and if it does, which of the three it was.
+    for (NSNumber *delay in @[ @0.05, @1.5 ]) {
+        double seconds = delay.doubleValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(seconds * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            __strong UIViewController *strongSelf = weakSelf;
+            if (!strongSelf || !strongSelf.isViewLoaded || !strongSelf.view.window) return;
+            M27WriteStatus(@"album_nav", @{
+                @"at": [NSString stringWithFormat:@"%.2fs", seconds],
+                @"right": M27DescribeBarItems(strongSelf.navigationItem.rightBarButtonItems),
+                @"left": M27DescribeBarItems(strongSelf.navigationItem.leftBarButtonItems),
+            });
+        });
+    }
 }
 
 - (void)viewDidLayoutSubviews {
