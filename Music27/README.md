@@ -31,10 +31,38 @@ lets the artwork's colour carry down into the page background. iOS 17 shows a
 small centred square on a plain background. Reference screenshots: *Positions
 (Deluxe)*, stock 17 versus 27.
 
-**Colour matching.** The detail page picks up the artwork's palette rather than
-staying neutral. `colorTheme` already derives a palette (`M27ColorTheme`), so
-this is about applying it to the detail page specifically, not about building
-new colour extraction.
+**Colour matching — and Music already does this natively.** The full-screen
+player derives its whole background from the artwork: a warm brown behind a
+gold-lit cover, periwinkle behind a grey one, with the transport glyphs tinted
+to match. That is Apple's own treatment, on the same device, from the same
+artwork we are trying to match. It is a working reference implementation sitting
+one screen away.
+
+Two things follow:
+
+1. **Prefer reading Music's palette over computing our own.** `M27ColorTheme`
+   extracts colours from a `UIImage`; Music has already done that work and got a
+   better answer. The catalog names the machinery —
+   `MusicApplication.PaletteContainerView` carries `backgroundView`,
+   `containerView`, `gradientLayer` and `destOverLayer`, and there is a
+   `PaletteViewController` / `PaletteTabBarController` family around it. Music27
+   already *hides* `PaletteContainerView` (it is the bottom blur backdrop), so
+   the type is proven present on device — what is unknown is where the colour
+   itself is published and whether it is readable without an unsafe field walk.
+2. **The catalog is 16.7-derived, so confirm on device first.** This is exactly
+   the trap that cost 1.1.36 two builds — `NowPlayingControlsViewController`'s
+   names did not survive to 17.3. Dump the now-playing screen's layer tree with
+   `nowplaying_tree` and find which layer actually carries the background colour
+   before trusting any of the names above.
+
+If the palette turns out not to be readable, `M27ColorTheme` remains the
+fallback — but it should be the fallback, not the first attempt.
+
+**Where the wash has to go.** Measured, not guessed: the album page's
+`UICollectionView` reports `bg 1.00`, and the wash is currently inserted at
+layer index 0 with `zPosition -1000`, which puts it behind an opaque wall. That
+is why *Artwork Color Theme* has never appeared to do anything. It has to colour
+the collection view's own background, or sit above it.
 
 **The constraint that matters: iOS 17+ album covers can be animated.** Several
 albums ship video artwork that plays on the detail page — the *Positions
