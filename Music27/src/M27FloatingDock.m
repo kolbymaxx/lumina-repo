@@ -3,7 +3,9 @@
 #import "Music27.h"
 
 static const CGFloat kM27DockSideInset = 18.0;
-/// Corner radius basis for the collapsed capsules.
+/// Collapsed capsule height. Matches the expanded mini pill rather than the
+/// 58pt tab row: at 58 the collapsed capsules read as visibly fatter than the
+/// pill they replace, which is the "gets fat when it collapses" complaint.
 static const CGFloat kM27CollapsedPill = 52.0;
 static const CGFloat kM27CollapsedGap = 8.0;
 static const CGFloat kM27ExpandedMiniHeight = 52.0;
@@ -95,17 +97,14 @@ static const CGFloat kM27CircleButton = 44.0;
     _collapsedLeadingGlass = [M27GlassChrome pillWithCornerRadius:kM27CollapsedPill / 2.0];
     [_collapsedLeadingHost addSubview:_collapsedLeadingGlass];
 
+    // A house, tinted, sitting in the glass — not a music-note list on a solid
+    // red tile. The reference shot is unambiguous about this one.
     _redButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    _redButton.backgroundColor = [UIColor colorWithRed:0.98 green:0.18 blue:0.30 alpha:1.0];
-    _redButton.tintColor = UIColor.whiteColor;
-    _redButton.layer.cornerRadius = 8.0;   // ~24% of 34pt, an app-icon squircle
-    if (@available(iOS 13.0, *)) {
-        _redButton.layer.cornerCurve = kCACornerCurveContinuous;
-    }
-    _redButton.clipsToBounds = YES;
+    _redButton.backgroundColor = UIColor.clearColor;
+    _redButton.tintColor = [UIColor colorWithRed:0.98 green:0.24 blue:0.35 alpha:1.0];
     UIImageSymbolConfiguration *cfg =
-        [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightBold];
-    [_redButton setImage:[UIImage systemImageNamed:@"music.note.list" withConfiguration:cfg]
+        [UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightSemibold];
+    [_redButton setImage:[UIImage systemImageNamed:@"house.fill" withConfiguration:cfg]
                 forState:UIControlStateNormal];
     [_redButton addTarget:self action:@selector(redTapped) forControlEvents:UIControlEventTouchUpInside];
     [_collapsedLeadingGlass.contentView addSubview:_redButton];
@@ -447,27 +446,26 @@ static const CGFloat kM27CircleButton = 44.0;
     CGFloat width = self.bounds.size.width;
     CGFloat side = kM27DockSideInset;
 
-    // Collapsed: three separate capsules, sitting where the tab row was.
+    // Collapsed: three capsules, parked between the two extremes.
     //
-    // 1.1.46 put this row at y = 0 so it would overlap Music's hidden mini
-    // player and the passthrough could open the full player. On device that read
-    // as floating far too high — the pill is supposed to drop into the space the
-    // categories occupied, which is what iOS 27 does.
+    // 1.1.46 put this row at y = 0 (screen 660-712) so it overlapped Music's
+    // hidden mini player and a tap could be handed over — but it read as
+    // floating far too high. 1.1.47 dropped it to the tab slot (720-778), which
+    // looked right and left only ~3pt of overlap, so the tap died.
     //
-    // So position wins, and the cost is real and worth stating: down here the row
-    // spans roughly screen 720-778 against a mini player at 667-723, about 3pt of
-    // overlap, so a tap can no longer be handed to Music. Collapsed taps fall
-    // back to expanding the dock; one-tap-to-player in this mode needs Music's
-    // hidden mini player moved, which is a change to the host app's layout and
-    // deserves its own build.
-    CGFloat pillH = kM27ExpandedTabHeight;
-    CGFloat rowY = kM27ExpandedMiniHeight + kM27ExpandedGap;
+    // Neither end is necessary. Music's mini player sits at 667-723 and the dock
+    // spans 660-778, so y = 30 puts this row at screen 690-742: 33pt of overlap,
+    // comfortably tappable, and visually centred between the mini pill's old
+    // position and the tab row's. Both requirements fit; they just could not be
+    // met at either extreme.
+    CGFloat pillH = kM27CollapsedPill;   // 52, not the 58 tab height — see below
+    CGFloat rowY = 30.0;
     CGFloat capsule = pillH;
 
     self.collapsedLeadingHost.frame = CGRectMake(side, rowY, capsule, pillH);
     self.collapsedLeadingGlass.frame = self.collapsedLeadingHost.bounds;
     [M27GlassChrome applyPaletteTintToGlass:self.collapsedLeadingGlass];
-    CGFloat redSide = 34.0;
+    CGFloat redSide = kM27CircleButton;
     self.redButton.frame = CGRectMake((capsule - redSide) / 2.0, (pillH - redSide) / 2.0,
                                       redSide, redSide);
 
@@ -624,15 +622,9 @@ static const CGFloat kM27CircleButton = 44.0;
 }
 
 - (void)nowPlayingTapped {
-    // Collapsed, the row sits over where Music's tab bar was, not over its mini
-    // player, so the passthrough has nothing to hand the touch to — see the
-    // geometry note in layoutSubviews. Expanding is the honest response: it puts
-    // the pill back over the mini player, where the next tap does open the
-    // player. Better than a tap that does nothing at all.
-    if (self.mode == M27DockModeCollapsed) {
-        [self setMode:M27DockModeExpanded animated:YES];
-        return;
-    }
+    // No collapsed special case any more. At y = 30 the row overlaps Music's
+    // mini player by ~33pt in both modes, so the passthrough hands the touch
+    // over and this is only reached when a tap misses the mini player outright.
     if ([self.delegate respondsToSelector:@selector(floatingDockDidTapNowPlaying:)]) {
         [self.delegate floatingDockDidTapNowPlaying:self];
     }

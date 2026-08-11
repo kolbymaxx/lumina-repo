@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.47
+Version: 1.1.48
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.47: the collapsed row drops into the space the categories occupied instead of floating high, and the stock album buttons are hidden as soon as they exist rather than a second or two later.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.48: the collapsed row sits between the two extremes, which gets both the position and a tappable album cover; the capsules are slimmer; the collapsed affordance is a house in glass.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks
