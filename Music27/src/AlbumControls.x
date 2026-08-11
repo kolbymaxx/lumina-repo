@@ -653,6 +653,20 @@ static NSString *M27DescribeControl(UIView *view) {
             NSStringFromCGRect(view.frame)];
 }
 
+/// Name the nav bar's right-hand items, without touching them.
+static NSString *M27DescribeBarItems(NSArray<UIBarButtonItem *> *items) {
+    if (items.count == 0) return @"none";
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    for (UIBarButtonItem *item in items) {
+        if (out.count >= 4) break;
+        [out addObject:[NSString stringWithFormat:@"%@/%@/%@",
+                        NSStringFromClass(item.class),
+                        item.accessibilityLabel ?: @"-",
+                        item.image ? @"img" : @"noimg"]];
+    }
+    return [out componentsJoinedByString:@","];
+}
+
 static BOOL M27InstallAlbumControls(UIViewController *vc) {
     M27Prefs *prefs = M27Prefs.shared;
     // May live in vc.view (older builds) or in the stock controls' superview.
@@ -735,6 +749,13 @@ static BOOL M27InstallAlbumControls(UIViewController *vc) {
         @"stock_row_hidden": stockRowWhy,
         @"download": M27DescribeControl(download),
         @"download_hidden": downloadWhy ?: @"yes",
+        // "There's a flash with the real red download button at the top for a
+        // second, and then it comes down." The one in the row is accounted for
+        // above; the one at the top is not in vc.view at all, so nothing here
+        // has ever seen it. If it is a bar button item this names it, and the
+        // next build can decide what to do about it on evidence rather than by
+        // hiding a control we have not identified.
+        @"nav_right": M27DescribeBarItems(vc.navigationItem.rightBarButtonItems),
     });
 
     // Host the row in the stock controls' OWN superview, not vc.view.
@@ -792,7 +813,25 @@ static BOOL M27InstallAlbumControls(UIViewController *vc) {
         @"span": NSStringFromCGRect(span),
         @"sibling_of_hidden_row": stockRow ? @"yes" : @"no",
     });
-    return YES;
+
+    // "COMPLETE" MEANS THE DOWNLOAD CONTROL TOO, NOT JUST PLAY AND SHUFFLE.
+    //
+    // 1.1.51's log is unambiguous about the remaining flash. Every album open
+    // reads the same way, one second apart:
+    //
+    //   18:44:00  album_controls  download=nil    download_hidden=nil
+    //   18:44:01  album_controls  download=Symbol download_hidden=yes
+    //
+    // Play and shuffle are in the header as soon as it builds; the download
+    // control arrives about a second later. Returning YES here as soon as the
+    // row was placed told the retry timer its job was done, so nothing was
+    // watching for the control that had not turned up yet — and Music's own red
+    // one sat there uncovered for that second.
+    //
+    // The row is still placed on this pass either way; only the answer to "is
+    // there anything left to wait for" changes. An album with genuinely no
+    // download control just costs the retry its full ~2s cap and then stops.
+    return download != nil;
 }
 
 /// Keep trying until the stock row exists.

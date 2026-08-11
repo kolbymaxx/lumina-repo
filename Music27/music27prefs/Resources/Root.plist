@@ -10,7 +10,9 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.51: the download glyph was smaller and paler than the shuffle glyph beside it, and the two could not have matched — shuffle was a symbol drawn at a chosen point size, download was a photograph of Apple’s control with whatever margin Apple left around it. So neither picks its own size now: every glyph in the row is trimmed to its real bounding box, redrawn to one fixed box, and contrast-stretched so a single-colour glyph lands flat at full strength while a progress ring keeps its dark arc and pale track apart. The placeholder arrow goes through the same path as the mirror, which is why the handover between them is no longer visible.</string>
+			<string>1.1.52: the remaining download flash had a measurable cause. Every album open logged the same pair a second apart — the play and shuffle controls exist as soon as the header builds, and the download control arrives about a second later. The install reported success as soon as the row was placed, which told the retry timer there was nothing left to wait for, so nothing was watching for the control that had not turned up yet and Music's own red one stayed uncovered for that second. Success now means the download control was found too. The separate red button that appears at the top of the screen is not in this page's view at all, so this build names it in status.log rather than hiding something it has not identified.
+
+1.1.51: the download glyph was smaller and paler than the shuffle glyph beside it, and the two could not have matched — shuffle was a symbol drawn at a chosen point size, download was a photograph of Apple’s control with whatever margin Apple left around it. So neither picks its own size now: every glyph in the row is trimmed to its real bounding box, redrawn to one fixed box, and contrast-stretched so a single-colour glyph lands flat at full strength while a progress ring keeps its dark arc and pale track apart. The placeholder arrow goes through the same path as the mirror, which is why the handover between them is no longer visible.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -122,7 +124,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.51 — album glyphs normalised to one size and weight. Verified on iOS 17.3; 16.7 untested.</string>
+			<string>Music27 1.1.52 — the retry waits for the download control. Verified on iOS 17.3; 16.7 untested.</string>
 		</dict>
 	</array>
 	<key>title</key>

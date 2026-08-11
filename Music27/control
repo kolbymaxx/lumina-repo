@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.51
+Version: 1.1.52
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.51: every glyph in the album row is trimmed to its real bounding box and redrawn to one size with its contrast stretched, so the mirrored download glyph matches the shuffle glyph and the handover from the placeholder to the mirror is no longer visible.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.52: the album install no longer reports success before the download control exists, closing the one second in which Music's own red download button sat uncovered under the glass row.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks
