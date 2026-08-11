@@ -113,35 +113,50 @@ static UIView *M27FindDownloadByAccessibility(UIView *root, NSInteger depth) {
 /// they have been indistinguishable in every log until now. They are not the
 /// same view: this one is in the nav bar and exists the instant the page is
 /// pushed; the header's is built asynchronously a beat later.
-static UIView *M27NavDownloadControl(UIViewController *vc) {
+static UIView *M27BarItemView(UIBarButtonItem *item) {
+    UIView *view = item.customView;
+    if (view) return view;
+    @try { return [item valueForKey:@"view"]; } @catch (__unused NSException *ex) {}
+    return nil;
+}
+
+static UIBarButtonItem *M27NavDownloadItem(UIViewController *vc) {
     for (UIBarButtonItem *item in vc.navigationItem.rightBarButtonItems ?: @[]) {
-        UIView *view = item.customView;
-        if (!view) {
-            @try { view = [item valueForKey:@"view"]; } @catch (__unused NSException *ex) {}
-        }
-        if (!view) continue;
+        UIView *view = M27BarItemView(item);
         NSString *label = (item.accessibilityLabel ?: (view.accessibilityLabel ?: @"")).lowercaseString;
         // "Download" and "Downloaded" both start this way; "More" does not.
-        if ([label hasPrefix:@"download"]) return view;
+        if ([label hasPrefix:@"download"]) return item;
     }
     return nil;
 }
 
-/// The download control **in the page**, never the nav bar's.
+static UIView *M27NavDownloadControl(UIViewController *vc) {
+    return M27BarItemView(M27NavDownloadItem(vc));
+}
+
+/// THERE IS ONLY ONE DOWNLOAD CONTROL, AND IT IS IN THE NAVIGATION BAR.
 ///
-/// 1.1.53 broke this by accident. Adding an accessibility-label match to the
-/// nav-bar loop made that loop hit for the first time, and the numbers say so
-/// plainly: `download=nil` appears 52 times in the 1.1.52 half of the log and
-/// **zero** times in the 1.1.53 half. Nothing got faster — the lookup simply
-/// started returning a different control, one that exists immediately, so the
-/// header's own download button stopped being the thing we hid and mirrored.
+/// 1.1.54 was built on the opposite belief — that the nav bar and the header
+/// each had one — and scoped this function to `vc.view` to keep them apart. The
+/// log answered in one line: **`download=nil` on all 192 samples**, while
+/// `nav_download` resolved every time. There is no download button inside the
+/// album page on 17.3. Scoping this to `vc.view` did not separate two controls,
+/// it discarded the only one, which is why the glass button stopped doing
+/// anything.
 ///
-/// The nav bar is handled separately now (see `M27SetNavDownloadHidden`), and
-/// this function is scoped to `vc.view` so it cannot wander back up there.
+/// It also means the "regression" reported in 1.1.54 was not one. 1.1.53's
+/// label match did change which control this returned, but it changed it from
+/// *nothing found yet* to *the real one*, and the drop in `download=nil` counts
+/// was the fix showing up, not a fault.
+///
+/// The page is still searched first — a playlist or a future firmware may put a
+/// control there — and the nav bar is the fallback rather than the exclusion.
 static UIView *M27FindDownloadControl(UIViewController *vc) {
     UIView *byTitle = M27FindControlWithTitle(vc.view, @[ @"download" ], NO, 0);
     if (byTitle) return byTitle;
-    return M27FindDownloadByAccessibility(vc.view, 0);
+    UIView *byAccessibility = M27FindDownloadByAccessibility(vc.view, 0);
+    if (byAccessibility) return byAccessibility;
+    return M27NavDownloadControl(vc);
 }
 
 /// Compact description for status.log — class plus frame. Defined below.
@@ -164,19 +179,31 @@ static const void *kM27NavDownloadKey = &kM27NavDownloadKey;
 /// So this runs before the gate, at `viewWillAppear`, and does not depend on
 /// anything the header has to build.
 ///
-/// AND IT IS PUT BACK. Hiding it for the life of the page would be a quieter
-/// bug: our glass row is a sibling of the header row and scrolls away with it,
-/// so once the artwork is scrolled off, the nav bar's button is the only
-/// download control there is. It is restored the moment the glass row is
-/// installed, and again on the way out.
+/// IT IS RESTORED ON THE WAY OUT, AND ONLY THEN. 1.1.54 also restored it as
+/// soon as the glass row installed, on the theory that the nav button was a
+/// second control worth keeping for the scrolled state. It is not a second
+/// control — it is *the* control (see `M27FindDownloadControl`), so ours mirrors
+/// and fires it, and putting it back while our row is on screen just returns
+/// the duplicate that was being complained about. iOS 27 shows only "•••" up
+/// there, which is the look this is aiming at anyway.
+///
+/// RETRIED, NOT ONE-SHOT. At `viewWillAppear` the bar item usually has no view
+/// yet — 191 of 192 samples read `nav_download_opacity=1` after 1.1.54 tried
+/// exactly once — so this is called from every install pass, including the
+/// 50ms retry, and returns early once it owns the view.
 static void M27SetNavDownloadHidden(UIViewController *vc, BOOL hidden) {
     if (!vc) return;
     UIView *tracked = objc_getAssociatedObject(vc, kM27NavDownloadKey);
 
     if (hidden) {
-        if (tracked) return;               // already ours
         UIView *nav = M27NavDownloadControl(vc);
-        if (!nav) return;
+        if (!nav) return;                  // item has no view yet — retry next pass
+        if (tracked == nav) return;        // already ours
+        // Music swaps this item as the state moves Download → Downloading →
+        // Downloaded. Tracking only the first one would leave the replacement
+        // visible and the old one hidden forever, so hand the previous view
+        // back before taking the new one.
+        if (tracked) tracked.layer.opacity = 1.0;
         nav.layer.opacity = 0.0;
         // RETAIN, not ASSIGN. Music can replace a bar button item at any time,
         // and an unretained association would then be a dangling pointer we
@@ -245,6 +272,11 @@ static void M27FireControl(UIView *control) {
 @property (nonatomic, weak) UIView *stockPlay;
 @property (nonatomic, weak) UIView *stockShuffle;
 @property (nonatomic, weak) UIView *stockDownload;
+/// Set when the download control came from the nav bar, which on 17.3 is
+/// always. A bar button item's action is public API and is what actually
+/// starts the download — the item's *view* is a MusicCoreUI.SymbolButton, not a
+/// UIControl, so sending it touch events does nothing.
+@property (nonatomic, weak) UIBarButtonItem *stockDownloadItem;
 @property (nonatomic, strong) NSTimer *mirrorTimer;
 @property (nonatomic, copy) NSString *lastDownloadLabel;
 @property (nonatomic, assign) BOOL downloadMirrored;
@@ -388,7 +420,31 @@ static void M27FireControl(UIView *control) {
 
 - (void)shuffleTapped { M27FireControl(self.stockShuffle); }
 - (void)playTapped { M27FireControl(self.stockPlay); }
-- (void)downloadTapped { M27FireControl(self.stockDownload); }
+- (void)downloadTapped {
+    // Prefer the bar button item's own target/action. Both are public
+    // properties, so this is an ordinary message send rather than the
+    // gesture-recogniser archaeology that M27FireControl falls back to — and it
+    // is the only thing that works here, because the item's view is a
+    // MusicCoreUI.SymbolButton and not a UIControl.
+    UIBarButtonItem *item = self.stockDownloadItem;
+    if (item.target && item.action && [item.target respondsToSelector:item.action]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [item.target performSelector:item.action withObject:item];
+#pragma clang diagnostic pop
+        M27WriteStatus(@"album_download_tap", @{
+            @"via": @"baritem",
+            @"action": NSStringFromSelector(item.action),
+        });
+        return;
+    }
+    M27WriteStatus(@"album_download_tap", @{
+        @"via": @"control",
+        @"item": item ? @"yes" : @"no",
+        @"stock": M27DescribeControl(self.stockDownload),
+    });
+    M27FireControl(self.stockDownload);
+}
 
 #pragma mark - Download state
 
@@ -776,6 +832,12 @@ static BOOL M27InstallAlbumControls(UIViewController *vc) {
         return NO;
     }
 
+    // BEFORE THE GATE. The download button is in the nav bar, which is painted
+    // from the first frame, while the lookup below returns early for the second
+    // or so Music spends building the header. Everything after this point is
+    // gated on a header that does not exist yet; this is not.
+    M27SetNavDownloadHidden(vc, YES);
+
     // Exact title match avoids false positives like "playlist" / "Listen Now".
     UIView *play = M27FindControlWithTitle(vc.view, @[ @"play" ], YES, 0);
     UIView *shuffle = M27FindControlWithTitle(vc.view, @[ @"shuffle" ], YES, 0);
@@ -896,6 +958,7 @@ static BOOL M27InstallAlbumControls(UIViewController *vc) {
     }
     row.stockPlay = play;
     row.stockShuffle = shuffle;
+    row.stockDownloadItem = M27NavDownloadItem(vc);
     // A different album means a different download control in a different state.
     if (row.stockDownload != download) {
         row.stockDownload = download;
@@ -932,13 +995,6 @@ static BOOL M27InstallAlbumControls(UIViewController *vc) {
     // The row is still placed on this pass either way; only the answer to "is
     // there anything left to wait for" changes. An album with genuinely no
     // download control just costs the retry its full ~2s cap and then stops.
-    if (download) {
-        // The glass row is up and the header's own download is covered, so the
-        // nav bar's button is no longer a duplicate — it is Music's normal
-        // scrolled-header affordance, and it has to come back before the user
-        // scrolls far enough to need it.
-        M27SetNavDownloadHidden(vc, NO);
-    }
     return download != nil;
 }
 
@@ -1062,10 +1118,6 @@ static void M27ReportAlbumTree(UIViewController *vc) {
     M27Prefs *prefs = M27Prefs.shared;
     if (!(prefs.enabled && prefs.glassTabBarEnabled)) return;
     if (!M27IsAlbumDetailController(self)) return;
-    // Before the install, not after: the install cannot hide anything until the
-    // header has built play and shuffle, and the nav bar is painted long before
-    // that. This is the whole flash.
-    M27SetNavDownloadHidden(self, YES);
     if (!M27InstallAlbumControls(self)) M27RetryAlbumInstall(self);
 }
 

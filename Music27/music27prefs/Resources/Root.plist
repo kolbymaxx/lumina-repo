@@ -10,7 +10,9 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.54: the flashing button is finally identified, and it is not the one every previous build was chasing. The navigation bar has its own download control — a separate 28x28 MusicCoreUI.SymbolButton from the header's, which is why the two were indistinguishable in every log until 1.1.53 sampled the bar itself. The flash is a gate, not a delay: the install looks up play and shuffle first and returns early if either is missing, so during the second Music spends building the header asynchronously, nothing has been hidden at all — while the nav bar is painted from the first frame. Making the retry faster could never fix that, which is why 1.1.52 cut the header gap to a third and the flash survived. The nav button is now covered before that gate, and put back the moment the glass row is installed, because our row scrolls away with the artwork and the nav bar's button is the only download control left after that.
+			<string>1.1.55: a correction. 1.1.54 was built on the belief that the album page and the navigation bar each had a download button, and scoped the lookup to the page so the two would not be confused. The log answered flatly — download=nil on all 192 samples, while the nav bar's control resolved every time. There is only one download button on this page and it is in the navigation bar, so scoping the lookup to the page did not separate two controls, it threw away the only one. That is why the glass button stopped doing anything and the red one stayed up top. The nav control is found again, its bar button item's own action is what the glass button fires (its view is not a UIControl, so touch events did nothing), it is hidden before the header gate rather than after it, and it is put back when you leave the page.
+
+1.1.54: the flashing button is finally identified, and it is not the one every previous build was chasing. The navigation bar has its own download control — a separate 28x28 MusicCoreUI.SymbolButton from the header's, which is why the two were indistinguishable in every log until 1.1.53 sampled the bar itself. The flash is a gate, not a delay: the install looks up play and shuffle first and returns early if either is missing, so during the second Music spends building the header asynchronously, nothing has been hidden at all — while the nav bar is painted from the first frame. Making the retry faster could never fix that, which is why 1.1.52 cut the header gap to a third and the flash survived. The nav button is now covered before that gate, and put back the moment the glass row is installed, because our row scrolls away with the artwork and the nav bar's button is the only download control left after that.
 
 1.1.53: no visible change — this build exists to identify the button that is still flashing. The one in the header row is accounted for: 1.1.52 cut the gap from 1.2s average to 0.3s, measured across nine album opens. What is left is the red button at the top of the screen, which lives in the navigation bar and so is not in this page's view at all. 1.1.52 could only report that three unnamed items exist there. This build looks one level in — at each item's own view and its children — and samples twice, 0.05s and 1.5s after the page appears, because a single sample cannot show a flash. It also removes a nav-bar matcher that would have returned the “•••” menu as the download control; it has never fired on 17.3, but wrong-by-construction and merely unreached is still wrong.
 
@@ -128,7 +130,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.54 — the flash was the nav bar's own download button. Verified on iOS 17.3; 16.7 untested.</string>
+			<string>Music27 1.1.55 — one download button, in the nav bar; 1.1.54 discarded it. Verified on iOS 17.3; 16.7 untested.</string>
 		</dict>
 	</array>
 	<key>title</key>
