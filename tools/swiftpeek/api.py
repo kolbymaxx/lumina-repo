@@ -171,6 +171,11 @@ class PeekSession:
             flags.append(f"gradient=[{gradient}]")
         if node.get("invisible"):
             flags.append("<-- INVISIBLE")
+        # SwiftPeek 0.5.3+. A walk that stopped at the depth cap and a walk that
+        # found a leaf used to render identically; this says which.
+        cut = node.get("truncated")
+        if cut:
+            flags.append(f"<-- STOPPED, {cut} more below")
         return flags
 
     def windows_table(self, *, views: bool = False) -> list[str]:

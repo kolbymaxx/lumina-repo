@@ -315,3 +315,37 @@ class LayerColorTests(unittest.TestCase):
         self.assertEqual(len(hit), 1)
         self.assertNotIn("layerbg=", hit[0])
         self.assertNotIn("gradient=", hit[0])
+
+
+class TruncationTests(unittest.TestCase):
+    """0.5.3: a walk that stopped must not read like a walk that finished."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not DEFAULT_CATALOG.is_file():
+            raise unittest.SkipTest(f"missing catalog {DEFAULT_CATALOG}")
+        cls.catalog = FieldCatalog(DEFAULT_CATALOG)
+
+    def _rows(self, view):
+        sample = json.loads(json.dumps(WINDOW_SAMPLE))
+        sample["windows"][0]["views"] = [view]
+        return PeekSession(sample, self.catalog).windows_table(views=True)
+
+    def test_truncated_node_says_how_many_it_missed(self):
+        rows = self._rows({
+            "depth": 6, "class": "MusicApplication.TintColorObservingView",
+            "frame": "{0,0,375,812}", "hidden": False, "alpha": 1.0,
+            "subviews": 4, "truncated": 4,
+        })
+        hit = [r for r in rows if "TintColorObservingView" in r]
+        self.assertEqual(len(hit), 1)
+        self.assertIn("STOPPED, 4 more below", hit[0])
+
+    def test_real_leaf_is_not_marked(self):
+        rows = self._rows({
+            "depth": 6, "class": "UIView", "frame": "{0,0,10,10}",
+            "hidden": False, "alpha": 1.0, "subviews": 0,
+        })
+        hit = [r for r in rows if r.strip().startswith("UIView")]
+        self.assertEqual(len(hit), 1)
+        self.assertNotIn("STOPPED", hit[0])

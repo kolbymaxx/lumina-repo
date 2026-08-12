@@ -1,9 +1,9 @@
 Package: com.kolby.swiftpeek
 Name: SwiftPeek
 Depends: mobilesubstrate, preferenceloader
-Version: 0.5.2
+Version: 0.5.3
 Architecture: iphoneos-arm64
-Description: Read-only SwiftUI + window-tree inspector. 0.5.2 fixes the Deep Dive controls, which used a cell class that renders but cannot be tapped — Depth and Max nodes are pickers now and Focus is a real text field. 0.5.1 made those settings exist; 0.5.0 added layer and gradient colour. No hooks, no FOVO, every target defaults off. Debug tooling; not published.
+Description: Read-only SwiftUI + window-tree inspector. 0.5.3 marks any node the walk stopped at with how many children it did not visit, so a truncated walk cannot be mistaken for an empty one, and corrects the Focus guidance — it matches view classes, not controller names. Layer and gradient colour since 0.5.0. No hooks, no FOVO, every target defaults off. Debug tooling; not published.
 Maintainer: ma6x9x
 Author: ma6x9x
 Section: Tweaks

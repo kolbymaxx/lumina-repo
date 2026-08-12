@@ -912,7 +912,23 @@ static void SPAppendViewTree(UIView *view, NSInteger depth,
     [out addObject:node];
 
     NSInteger childDepth = refocused ? 1 : depth + 1;
-    if (!refocused && depth >= SPViewTreeMaxDepth()) return;
+    if (!refocused && depth >= SPViewTreeMaxDepth()) {
+        // STOPPED IS NOT THE SAME AS EMPTY, AND THE DUMP HAS TO SAY WHICH.
+        //
+        // The first depth-6 dump of the now-playing screen ended on
+        // MusicApplication.TintColorObservingView with subviews=4 — one level
+        // above everything worth seeing. Nothing in the output said "there is
+        // more here", so a reader has to notice the subview count and do the
+        // arithmetic. That is the same trap as a diagnostic that logs nothing
+        // on success: two very different states rendering identically.
+        if (view.subviews.count > 0) {
+            NSMutableDictionary *last = out.lastObject;
+            if ([last isKindOfClass:NSMutableDictionary.class]) {
+                last[@"truncated"] = @(view.subviews.count);
+            }
+        }
+        return;
+    }
     NSInteger siblings = 0;
     for (UIView *sub in view.subviews) {
         if (siblings++ >= kSPViewTreeMaxSiblings) break;
@@ -1267,7 +1283,7 @@ static void SPStartIfEnabled(void) {
         // is what resolves Glyph's PENDING DUMP surface rows.
         if (!SPPrefBool(@"enabled", NO) || !SPPrefBool(@"targetSpringBoard", NO)) return;
         BOOL sbScan = SPPrefBool(@"sbScanWindows", NO);
-        NSLog(@"[SwiftPeek] SpringBoard recon mode (0.5.2) iconInventory=%d sbScanWindows=%d",
+        NSLog(@"[SwiftPeek] SpringBoard recon mode (0.5.3) iconInventory=%d sbScanWindows=%d",
               SPPrefBool(@"iconInventory", NO) ? 1 : 0, sbScan ? 1 : 0);
         SPRunIconInventory(@"launch");
 
@@ -1309,7 +1325,7 @@ static void SPStartIfEnabled(void) {
     dispatch_once(&launchOnce, ^{
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
             NSString *msg = [NSString stringWithFormat:
-                @"%@ launch probe (0.5.2) scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
+                @"%@ launch probe (0.5.3) scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
                 NSProcessInfo.processInfo.processName ?: @"?",
                 scanOn ? 1 : 0, hooksOn ? 1 : 0, fieldsOn ? 1 : 0, metaOn ? 1 : 0];
             SPWriteHeartbeat(msg, NO, @[], @[]);

@@ -17,7 +17,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>0.5.2: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background, and layer/gradient colour), a view subtree per window whose depth and focus you set under Deep Dive, plus the SwiftUI host tree. SpringBoard needs its own two switches below. Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit the target app after changing anything.</string>
+			<string>0.5.3: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background, and layer/gradient colour), a view subtree per window whose depth and focus you set under Deep Dive, plus the SwiftUI host tree. SpringBoard needs its own two switches below. Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit the target app after changing anything.</string>
 			<key>label</key>
 			<string>SwiftPeek</string>
 		</dict>
@@ -245,7 +245,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>How far the view subtree walk goes, and where it aims. Depth 3 answers “is my overlay composited”; it is far too shallow to find which view paints a colour — the first Music dump with layer colour hit the cap several levels above anything interesting. Focus restarts the depth budget at any view whose class name contains the text, so the budget goes where the question is. Give it something specific: NowPlaying, Palette, DetailHeader. A generic string like UIView matches everything and wastes the walk. For the artwork background: Depth 6, Max nodes 200, Focus NowPlaying, then open the full-screen player.</string>
+			<string>How far the view subtree walk goes, and where it aims. Focus restarts the depth budget at any view whose class name contains the text, so the budget goes where the question is. It matches VIEW classes, not controllers — “NowPlaying” names a controller and will never match, which is what the first attempt got wrong. Real view classes on this device: TintColorObserving (the full-screen player's content root), Palette, DetailHeader, NavigationBar. A node that stopped at the depth cap is marked with how many children it did not visit, so a truncated walk cannot be mistaken for an empty one. For the artwork background: Depth 8, Max nodes 200, Focus TintColorObserving.</string>
 			<key>label</key>
 			<string>Deep Dive</string>
 		</dict>
@@ -331,7 +331,7 @@
 			<key>label</key>
 			<string>Focus</string>
 			<key>placeholder</key>
-			<string>NowPlaying</string>
+			<string>TintColorObserving</string>
 		</dict>
 		<dict>
 			<key>cell</key>
