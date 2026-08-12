@@ -86,6 +86,9 @@ def _cmd_summary(args: argparse.Namespace) -> int:
     for k in (
         "tool_version",
         "milestone",
+        "process",
+        "bundle_id",
+        "target_rule",
         "message",
         "nodes",
         "windows",
@@ -97,6 +100,11 @@ def _cmd_summary(args: argparse.Namespace) -> int:
         label = {
             "tool_version": "tool_version",
             "milestone": "milestone",
+            "process": "process",
+            "bundle_id": "bundle_id",
+            # 0.6.0+. Why SwiftPeek did or did not run here — the first thing to
+            # look at when a dump you expected is missing.
+            "target_rule": "target_rule",
             "message": "message",
             "nodes": "nodes",
             "windows": "windows",

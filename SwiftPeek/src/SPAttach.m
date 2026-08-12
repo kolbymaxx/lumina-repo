@@ -708,6 +708,38 @@ static BOOL SPKillSwitchEngaged(void) {
     return engaged;
 }
 
+/// Which rule let this process through, for the dump header. "" when nothing did.
+///
+/// A tool whose commonest failure is "it produced no dump" needs to be able to
+/// say *why*, and the answer is almost always one of three: the kill switch, no
+/// matching rule, or a matching rule whose switch is off. Before 0.6.0 all
+/// three looked identical from the outside — an empty dumps directory.
+static NSString *gSPTargetRule = @"";
+
+static NSString *SPTargetRule(void) { return gSPTargetRule ?: @""; }
+
+/// User-supplied targets, one per line or comma-separated, matched against
+/// either the process name or the bundle identifier, case-insensitively.
+///
+/// Capped and trimmed rather than trusted: this is free-text from a settings
+/// field, and it decides whether a dylib activates inside someone else's app.
+static NSArray<NSString *> *SPCustomTargetList(void) {
+    NSString *raw = SPPrefString(@"customTargets");
+    if (!raw.length) return @[];
+
+    NSCharacterSet *seps = [NSCharacterSet characterSetWithCharactersInString:@",;\n\r\t "];
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    for (NSString *piece in [raw componentsSeparatedByCharactersInSet:seps]) {
+        NSString *t = [[piece stringByTrimmingCharactersInSet:
+                        [NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
+        if (!t.length) continue;
+        if ([out containsObject:t]) continue;
+        [out addObject:t];
+        if (out.count >= 16) break;
+    }
+    return out;
+}
+
 /// Per-process opt-in. Every target defaults OFF except Music, which is the
 /// only one with a crash-tested field-walk allowlist behind it
 /// (`SPClassNameIsMusicMetaView`). That allowlist does NOT transfer, so a newly
@@ -727,8 +759,38 @@ static BOOL SPKillSwitchEngaged(void) {
 /// Two caveats stay on the record: one device, one firmware, and 16.7 untried.
 /// SpringBoard therefore keeps a second gate (`sbScanWindows`) that no other
 /// target has, and `dumpFieldMeta` is forced off there regardless of pref.
+///
+/// ## 0.6.0: the table is no longer the whole answer
+///
+/// Seven hardcoded Apple processes is the right list for exactly one developer
+/// working on exactly these tweaks. For anybody else — including Music27's own
+/// sibling projects — it means the tool cannot be pointed at the app they are
+/// actually working on without editing this array and rebuilding. That is not a
+/// dependency; it is a private script.
+///
+/// So there is now a second path: `targetCustom` plus a free-text list of
+/// bundle IDs or process names. It is deliberately weaker than the table:
+///
+/// - The table is consulted **first** and returns unconditionally. A built-in
+///   target's own switch is the only thing that can enable it, so typing
+///   "com.apple.springboard" into the custom field enables nothing — SpringBoard
+///   keeps its two dedicated gates and all the reasoning above.
+/// - The process must be an `.app` bundle. Daemons are where an ill-considered
+///   injection stops being a force-quit and starts being a restore, and none of
+///   them satisfy this test. The two daemon-ish targets that ARE supported
+///   (assistantd, SiriViewService) reach that decision through the table, where
+///   each one was reasoned about individually.
+///
+/// The kill switch is checked before any of this, in every process the filter
+/// now loads into. That is three `stat` calls at launch even when SwiftPeek is
+/// entirely off, and it is the right trade: the one path that must work is the
+/// one you take when a target has stopped booting.
 static BOOL SPIsAllowedProcess(void) {
-    if (SPKillSwitchEngaged()) return NO;
+    gSPTargetRule = @"";
+    if (SPKillSwitchEngaged()) {
+        gSPTargetRule = @"denied:killswitch";
+        return NO;
+    }
 
     NSString *name = NSProcessInfo.processInfo.processName ?: @"";
     NSString *bundle = NSBundle.mainBundle.bundleIdentifier ?: @"";
@@ -749,11 +811,34 @@ static BOOL SPIsAllowedProcess(void) {
     for (NSArray *t in targets) {
         BOOL matches = [name isEqualToString:t[0]] || [bundle isEqualToString:t[1]];
         if (!matches) continue;
-        return SPPrefBool(t[2], [t[3] boolValue]);
+        BOOL on = SPPrefBool(t[2], [t[3] boolValue]);
+        gSPTargetRule = [NSString stringWithFormat:@"builtin:%@:%@", t[0], on ? @"on" : @"off"];
+        return on;
+    }
+
+    if (!SPPrefBool(@"targetCustom", NO)) {
+        gSPTargetRule = @"nomatch:custom-off";
+        return NO;
+    }
+
+    NSString *ext = NSBundle.mainBundle.bundlePath.pathExtension ?: @"";
+    if (![ext isEqualToString:@"app"]) {
+        gSPTargetRule = @"denied:not-an-app";
+        return NO;
+    }
+
+    NSArray<NSString *> *custom = SPCustomTargetList();
+    for (NSString *entry in custom) {
+        if ([entry isEqualToString:name.lowercaseString] ||
+            [entry isEqualToString:bundle.lowercaseString]) {
+            gSPTargetRule = [NSString stringWithFormat:@"custom:%@", entry];
+            return YES;
+        }
     }
 
     // Never attach to a process we have not explicitly reasoned about, even if
     // the MobileSubstrate filter somehow loads us there.
+    gSPTargetRule = @"nomatch";
     return NO;
 }
 
@@ -1353,7 +1438,7 @@ static void SPStartIfEnabled(void) {
         // is what resolves Glyph's PENDING DUMP surface rows.
         if (!SPPrefBool(@"enabled", NO) || !SPPrefBool(@"targetSpringBoard", NO)) return;
         BOOL sbScan = SPPrefBool(@"sbScanWindows", NO);
-        NSLog(@"[SwiftPeek] SpringBoard recon mode (0.5.5) iconInventory=%d sbScanWindows=%d",
+        NSLog(@"[SwiftPeek] SpringBoard recon mode (0.6.0) iconInventory=%d sbScanWindows=%d",
               SPPrefBool(@"iconInventory", NO) ? 1 : 0, sbScan ? 1 : 0);
         SPRunIconInventory(@"launch");
 
@@ -1395,8 +1480,8 @@ static void SPStartIfEnabled(void) {
     dispatch_once(&launchOnce, ^{
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
             NSString *msg = [NSString stringWithFormat:
-                @"%@ launch probe (0.5.5) scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
-                NSProcessInfo.processInfo.processName ?: @"?",
+                @"%@ launch probe (0.6.0) rule=%@ scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
+                NSProcessInfo.processInfo.processName ?: @"?", SPTargetRule(),
                 scanOn ? 1 : 0, hooksOn ? 1 : 0, fieldsOn ? 1 : 0, metaOn ? 1 : 0];
             SPWriteHeartbeat(msg, NO, @[], @[]);
             SPWriteJSONDump(@{
@@ -1404,6 +1489,8 @@ static void SPStartIfEnabled(void) {
                 @"probe": @YES,
                 @"launch": @YES,
                 @"message": msg,
+                @"target_rule": SPTargetRule(),
+                @"bundle_id": NSBundle.mainBundle.bundleIdentifier ?: @"",
                 @"prefs": @{
                     @"enabled": @YES,
                     @"scanWindows": @(scanOn),
@@ -1465,6 +1552,23 @@ static void SPStartIfEnabled(void) {
 __attribute__((constructor)) static void SPConstructor(void) {
     @autoreleasepool {
         if (!SPIsAllowedProcess()) {
+            // Say why, but only into the log and only when the user has turned
+            // SwiftPeek on at all. 0.6.0 loads into every UIKit process so that
+            // a target can be named at runtime instead of at build time; the
+            // price of that is that this branch is now the common case, and it
+            // must stay silent — no files, no work, one line at most.
+            //
+            // That one line matters. "Nothing happened" was the single most
+            // expensive diagnostic outcome this tool produced, and three of its
+            // causes are indistinguishable without it.
+            NSString *rule = SPTargetRule();
+            if (![rule isEqualToString:@"nomatch"] &&
+                ![rule isEqualToString:@"nomatch:custom-off"] &&
+                SPPrefBool(@"enabled", NO)) {
+                NSLog(@"[SwiftPeek] not attaching to %@ (%@) — %@",
+                      NSProcessInfo.processInfo.processName ?: @"?",
+                      NSBundle.mainBundle.bundleIdentifier ?: @"?", rule);
+            }
             return;
         }
 

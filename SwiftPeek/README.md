@@ -15,6 +15,13 @@ tools: annotate / query / **ranked targets** / **Theos scaffold** —
 [`docs/READ_API.md`](docs/READ_API.md), [`docs/TWEAK_WORKFLOW.md`](docs/TWEAK_WORKFLOW.md),
 `PYTHONPATH=tools python3 -m swiftpeek …`. Not published to APT.
 
+## Using it on your own app
+
+[**`docs/USING_SWIFTPEEK.md`**](docs/USING_SWIFTPEEK.md) — the getting-started
+path for someone who is not me: point it at a bundle ID, read the probe, find
+the surface, and the list of things it will *not* tell you before you spend a
+build finding out.
+
 ## Where this is going
 
 SwiftPeek is being grown from a debugging tool into the support library modern
@@ -25,9 +32,35 @@ iOS 17. Every entry in that registry cost a device cycle to learn.
 
 ## Targets
 
-Per-process, pref-gated, all **off by default except Music**. A process that is
-not in this table is never attached to, even if the MobileSubstrate filter
-loads the dylib there.
+Per-process, pref-gated, all **off by default except Music**.
+
+Until 0.6.0 this table was the *whole* answer, and the injection filter named
+the same seven bundles — so pointing SwiftPeek at any other app meant editing
+two files and rebuilding the package. That is a private script, not something
+another developer can use. 0.6.0 filters on `com.apple.UIKit` instead and moves
+the decision to runtime, where **Your own targets** in Settings takes bundle IDs
+or process names:
+
+```
+targetCustom   = on
+customTargets  = com.example.app, AnotherApp
+```
+
+The custom path is deliberately weaker than the table. The table is consulted
+first and answers unconditionally, so a built-in target's own switch is the only
+thing that can enable it — typing `com.apple.springboard` into the custom field
+enables nothing, and SpringBoard keeps both its dedicated gates. The custom path
+also refuses anything that is not an `.app` bundle: daemons are where a bad
+injection stops being a force-quit and starts being a restore, and the two
+daemon-ish targets that *are* supported reach that decision through the table,
+where each was reasoned about individually.
+
+Everything else returns from the constructor having read one preference.
+
+**Every dump now records which rule admitted the process** — `builtin:Music:on`,
+`custom:com.example.app`, `denied:killswitch` — as `target_rule`. "No dump
+appeared" had three indistinguishable causes and was the most expensive
+diagnostic outcome this tool produced; it is now one line in the probe.
 
 | Process | Pref | Default | Why |
 |---------|------|---------|-----|

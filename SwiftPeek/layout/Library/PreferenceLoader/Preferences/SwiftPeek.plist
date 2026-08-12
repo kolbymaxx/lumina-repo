@@ -17,7 +17,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>0.5.5: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background, and layer/gradient colour), a view subtree per window whose depth and focus you set under Deep Dive, plus the SwiftUI host tree. SpringBoard needs its own two switches below. Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit the target app after changing anything.</string>
+			<string>0.6.0: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background, and layer/gradient colour), a view subtree per window whose depth and focus you set under Deep Dive, plus the SwiftUI host tree. SpringBoard needs its own two switches below. Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit the target app after changing anything.</string>
 			<key>label</key>
 			<string>SwiftPeek</string>
 		</dict>
@@ -39,7 +39,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Which processes SwiftPeek may attach to. Everything except Music is off by default. Only Music has a crash-tested allowlist behind the deeper walks — a newly enabled target gets the window and controller trees only.</string>
+			<string>Which processes SwiftPeek may attach to. Everything except Music is off by default. Only Music has a crash-tested allowlist behind the deeper walks — a newly enabled target gets the window and controller trees only. For any app not listed here, use Your own targets below.</string>
 			<key>label</key>
 			<string>Targets</string>
 		</dict>
@@ -103,7 +103,45 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>System processes. These are not apps — you cannot force-quit them to recover. If one stops behaving, disable it over SSH with: touch /var/jb/var/mobile/Library/SwiftPeek/DISABLE — SwiftPeek checks for that file before anything else runs. SpringBoard is deliberately not offered yet.</string>
+			<string>Any other app, by bundle ID or process name — one per line, or comma-separated. This is how you point SwiftPeek at the app you are actually working on instead of rebuilding it. Apps only: process names that are not an .app bundle are refused, and the switches above are the only way to enable the apps they name, so listing com.apple.springboard here does nothing. Up to 16 entries. Force-quit the app after changing this.</string>
+			<key>label</key>
+			<string>Your own targets</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>targetCustom</string>
+			<key>label</key>
+			<string>Enable custom targets</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSEditTextCell</string>
+			<key>default</key>
+			<string></string>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>customTargets</string>
+			<key>label</key>
+			<string>Targets</string>
+			<key>placeholder</key>
+			<string>com.example.app, MyApp</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>System processes. These are not apps — you cannot force-quit them to recover. If one stops behaving, disable it over SSH with: touch /var/jb/var/mobile/Library/SwiftPeek/DISABLE — SwiftPeek checks for that file before anything else runs. SpringBoard has its own section further down.</string>
 			<key>label</key>
 			<string>System (Siri)</string>
 		</dict>

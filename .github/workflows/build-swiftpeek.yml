@@ -6,10 +6,14 @@ on:
   push:
     paths:
       - 'SwiftPeek/**'
+      - 'tools/swiftpeek/**'
+      - 'scripts/check-swiftpeek-version.sh'
       - '.github/workflows/build-swiftpeek.yml'
   pull_request:
     paths:
       - 'SwiftPeek/**'
+      - 'tools/swiftpeek/**'
+      - 'scripts/check-swiftpeek-version.sh'
       - '.github/workflows/build-swiftpeek.yml'
 
 concurrency:
@@ -17,6 +21,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The host-side reader is half the tool — it is what a consumer actually runs
+  # against a dump, and until now nothing checked it on push. Ubuntu, no
+  # toolchain, seconds: there is no reason for this not to gate every change.
+  #
+  # It also guards the one thing in this repo that cannot be re-derived from
+  # source: the icon thresholds in tools/swiftpeek/icons.py are tuned against a
+  # real 201-entry SpringBoard inventory, not synthetic data. Changing one and
+  # finding out later is exactly what this job is here to prevent.
+  host-tools:
+    name: Host tools (python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Unit tests
+        working-directory: tools
+        run: python3 -m unittest swiftpeek.test_icons swiftpeek.test_api swiftpeek.test_scaffold -v
+
+      - name: CLI smoke test
+        working-directory: tools
+        run: |
+          set -euo pipefail
+          python3 -m swiftpeek --help > /dev/null
+          for sub in annotate summary types strings windows fields find targets scaffold icons calibration tint-plan; do
+            python3 -m swiftpeek "$sub" --help > /dev/null
+          done
+          echo "all subcommands parse"
+
   build:
     name: Build rootless .deb
     runs-on: macos-14
@@ -102,23 +140,46 @@ jobs:
           PREFS_SRC="$GITHUB_WORKSPACE/SwiftPeek/layout/Library/PreferenceLoader/Preferences/SwiftPeek.plist"
           test -n "$FILTER"
           plutil -p "$FILTER"
-          grep -q 'com.apple.Music' <(plutil -p "$FILTER")
-          # 0.4.0 allows SpringBoard in the filter for the opt-in recon mode.
-          # 0.2.0 put SpringBoard into Safe Mode with a Swift-linked dylib, so
-          # what has to be guarded now is not the filter but the two things
-          # that make the SpringBoard path safe: the dylib stays ObjC-only, and
-          # injection is gated behind a pref that defaults off.
-          if grep -qi 'springboard' <(plutil -p "$FILTER"); then
-            echo "SpringBoard present in filter — verifying the opt-in gate"
-            grep -q 'targetSpringBoard' "$GITHUB_WORKSPACE/SwiftPeek/src/SPAttach.m" || {
-              echo "ERROR: SpringBoard in filter with no targetSpringBoard gate" >&2
-              exit 1
-            }
-            grep -q 'targetSpringBoard' <(plutil -p "$PREFS_SRC") || {
-              echo "ERROR: targetSpringBoard is not exposed in the prefs bundle" >&2
-              exit 1
-            }
-          fi
+          # 0.6.0 filters on com.apple.UIKit, so the dylib loads into every
+          # UIKit process and the filter no longer gates anything. That moves
+          # the entire safety argument onto the runtime gate, so the runtime
+          # gate is what gets asserted — and it is asserted harder than the
+          # narrow filter ever was.
+          grep -q 'com.apple.UIKit' <(plutil -p "$FILTER")
+          SRC="$GITHUB_WORKSPACE/SwiftPeek/src/SPAttach.m"
+          # The constructor's FIRST statement must be the process check. If
+          # anything is allowed to run before it, a broad filter means that
+          # something runs in every app on the device.
+          python3 - "$SRC" <<'PY'
+          import re, sys
+          src = open(sys.argv[1]).read()
+          body = src.split('__attribute__((constructor)) static void SPConstructor', 1)
+          assert len(body) == 2, "SPConstructor not found"
+          # First non-comment, non-blank statement after the autoreleasepool.
+          after = body[1].split('@autoreleasepool', 1)[1]
+          stmts = [l.strip() for l in after.splitlines()
+                   if l.strip() and not l.strip().startswith(('//', '/*', '*', '{'))]
+          assert stmts and stmts[0].startswith('if (!SPIsAllowedProcess())'), \
+              "first statement of SPConstructor is %r, expected the process gate" % (stmts[:1],)
+          print("ok  SPConstructor gates on SPIsAllowedProcess first")
+          PY
+          # 0.2.0 put SpringBoard into Safe Mode with a Swift-linked dylib. The
+          # dylib stays ObjC-only (checked below on the built binary) and
+          # SpringBoard keeps a pref that defaults off.
+          grep -q 'targetSpringBoard' "$SRC" || {
+            echo "ERROR: no targetSpringBoard gate" >&2; exit 1; }
+          grep -q 'targetSpringBoard' <(plutil -p "$PREFS_SRC") || {
+            echo "ERROR: targetSpringBoard is not exposed in the prefs bundle" >&2; exit 1; }
+          # The custom-target path is the new way into an arbitrary process. It
+          # must stay behind its own switch and must refuse anything that is not
+          # an .app bundle — daemons are where a bad injection stops being a
+          # force-quit and starts being a restore.
+          grep -q 'SPPrefBool(@"targetCustom", NO)' "$SRC" || {
+            echo "ERROR: custom targets are not gated by targetCustom" >&2; exit 1; }
+          grep -q 'isEqualToString:@"app"' "$SRC" || {
+            echo "ERROR: custom targets do not require an .app bundle" >&2; exit 1; }
+          grep -q 'targetCustom' <(plutil -p "$PREFS_SRC") || {
+            echo "ERROR: targetCustom is not exposed in the prefs bundle" >&2; exit 1; }
           # An ObjC-only dylib is load-bearing: Swift runtime + SpringBoard is
           # the exact 0.2.1 failure, and the Makefile already states the rule
           # for every process, not just SpringBoard. So this runs unconditionally

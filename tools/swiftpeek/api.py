@@ -225,6 +225,12 @@ class PeekSession:
             "tool_version": self.dump.get("tool_version"),
             "milestone": self.dump.get("milestone"),
             "message": self.dump.get("message"),
+            "process": self.dump.get("process"),
+            "bundle_id": self.dump.get("bundle_id"),
+            # SwiftPeek 0.6.0+. Which rule admitted the process — "builtin:Music:on",
+            # "custom:com.example.app", "denied:killswitch". Present only on the
+            # launch probe, and None for dumps written by older builds.
+            "target_rule": self.dump.get("target_rule"),
             "nodes": len(nodes),
             "windows": len(self.windows),
             "matched_nodes": ann.get("matched_nodes"),

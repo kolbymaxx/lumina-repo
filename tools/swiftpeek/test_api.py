@@ -388,3 +388,41 @@ class SwiftUIDetectionTests(unittest.TestCase):
         """A 0.5.4 dump could not count these; that must not read as 'none here'."""
         sess = PeekSession(WINDOW_SAMPLE, self.catalog)
         self.assertIsNone(sess.summary()["swiftui_views"])
+
+
+class TargetRuleTests(unittest.TestCase):
+    """0.6.0: which rule admitted the process.
+
+    SwiftPeek now loads into every UIKit process and decides at runtime, so
+    "no dump appeared" has more possible causes than it used to. The probe
+    records the reason; the summary has to carry it through unchanged, including
+    the difference between a build that could not report one and a build that
+    reported nothing matched.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not DEFAULT_CATALOG.is_file():
+            raise unittest.SkipTest(f"missing catalog {DEFAULT_CATALOG}")
+        cls.catalog = FieldCatalog(DEFAULT_CATALOG)
+
+    def test_custom_rule_is_carried(self):
+        sample = json.loads(json.dumps(WINDOW_SAMPLE))
+        sample["target_rule"] = "custom:com.example.app"
+        sample["bundle_id"] = "com.example.app"
+        summary = PeekSession(sample, self.catalog).summary()
+        self.assertEqual(summary["target_rule"], "custom:com.example.app")
+        self.assertEqual(summary["bundle_id"], "com.example.app")
+
+    def test_builtin_rule_is_carried(self):
+        sample = json.loads(json.dumps(WINDOW_SAMPLE))
+        sample["target_rule"] = "builtin:Music:on"
+        self.assertEqual(
+            PeekSession(sample, self.catalog).summary()["target_rule"],
+            "builtin:Music:on",
+        )
+
+    def test_old_dump_reports_none(self):
+        sess = PeekSession(WINDOW_SAMPLE, self.catalog)
+        self.assertIsNone(sess.summary()["target_rule"])
+        self.assertIsNone(sess.summary()["bundle_id"])

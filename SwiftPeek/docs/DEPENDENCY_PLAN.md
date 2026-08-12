@@ -117,6 +117,27 @@ Each entry cost at least one device cycle.
 | `../` in a Theos `_FILES` entry | Object files land outside `.theos/obj` | Symlink the shared directory into `src/` |
 | Path-filtered CI that does not list the shared directory | A shared-source change silently ships nothing | Add `SPKit/**` to every consumer's workflow trigger |
 
+## Prerequisite, done at 0.6.0: it has to be pointable
+
+Everything above assumes another developer can run the tool at all. Until 0.6.0
+they could not. The injection filter named seven Apple bundles and
+`SPIsAllowedProcess` named the same seven, so using SwiftPeek on any other app
+meant editing two files in this repo and rebuilding the package. No amount of
+API design fixes a tool that only works on the author's seven apps.
+
+0.6.0 filters on `com.apple.UIKit` and decides at runtime instead: `targetCustom`
+plus a free-text list of bundle IDs or process names. The safety model did not
+move, it just runs later — kill switch, then the built-in table (which still
+answers unconditionally, so SpringBoard keeps both its gates), then the custom
+list, which only matches `.app` bundles. Every other process on the device
+returns from the constructor having read one preference.
+
+The cost of a broad filter is that "did nothing" became the common path, so the
+probe now records `target_rule` — `builtin:Music:on`, `custom:com.example.app`,
+`denied:killswitch` — and CI asserts that `SPIsAllowedProcess()` is still the
+first statement of the constructor. A broad filter with a late gate would be a
+real hazard; the assertion is what keeps it from becoming one by accident.
+
 ## Dogfooding order
 
 1. ~~Extract runtime hygiene + overlay hosting as **shared source**.~~ Done —

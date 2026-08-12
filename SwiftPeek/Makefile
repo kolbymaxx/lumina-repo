@@ -1,8 +1,12 @@
 TARGET := iphone:clang:latest:15.0
 ARCHS = arm64 arm64e
-# Union of both branches. Injection into a process is not the same as running
-# there: every target is gated by a pref that defaults off, and SpringBoard
-# needs two (see SPAttach.m).
+# Injection into a process is not the same as running there: every target is
+# gated by a pref that defaults off, and SpringBoard needs two (see SPAttach.m).
+#
+# This list only decides what gets killed after `make install`. The processes
+# the dylib actually LOADS into come from SwiftPeek.plist, which since 0.6.0 is
+# every UIKit process — that is what lets a user name their own target in
+# Settings instead of editing source and rebuilding.
 INSTALL_TARGET_PROCESSES = Music Podcasts TV SpringBoard
 # Default rootless; CI / local builds override with THEOS_PACKAGE_SCHEME=roothide
 THEOS_PACKAGE_SCHEME ?= rootless
