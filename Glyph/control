@@ -1,0 +1,9 @@
+Package: com.kolby.glyph
+Name: Glyph
+Depends: mobilesubstrate, preferenceloader
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Description: SwiftUI-era SnowBoard successor — Phase B UIKit icon engine (SBIconImageView). Reads existing SnowBoard IconBundles theme packs. Default off. Not published.
+Maintainer: Kolby
+Author: Kolby
+Section: Tweaks

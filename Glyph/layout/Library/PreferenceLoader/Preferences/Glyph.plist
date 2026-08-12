@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>entry</key>
+	<dict>
+		<key>cell</key>
+		<string>PSLinkCell</string>
+		<key>icon</key>
+		<string></string>
+		<key>label</key>
+		<string>Glyph</string>
+	</dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>UIKit icon theming engine (Phase B). Default off. Reads SnowBoard theme packs from Library/Themes — no conversion needed. Select themes by writing the selectedThemes array (theme folder names, priority order) to com.kolby.glyph.plist until the Phase D manager UI ships. Respring after disabling to restore stock icons.</string>
+			<key>label</key>
+			<string>Glyph</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.glyph/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.kolby.glyph</string>
+			<key>key</key>
+			<string>enabled</string>
+			<key>label</key>
+			<string>Enable Glyph</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.glyph/prefschanged</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.kolby.glyph</string>
+			<key>key</key>
+			<string>logEvents</string>
+			<key>label</key>
+			<string>Log Events (os_log / NSLog)</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Emergency kill switch: create the file com.kolby.glyph.killswitch in /var/mobile/Library/Preferences (via SSH or Filza) and respring to fully disable Glyph without uninstalling.</string>
+			<key>label</key>
+			<string>Safety</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Glyph • by kolby — icons decoded once, never per-frame</string>
+		</dict>
+	</array>
+	<key>title</key>
+	<string>Glyph</string>
+</dict>
+</plist>
