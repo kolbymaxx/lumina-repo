@@ -31,32 +31,65 @@ lets the artwork's colour carry down into the page background. iOS 17 shows a
 small centred square on a plain background. Reference screenshots: *Positions
 (Deluxe)*, stock 17 versus 27.
 
-**Colour matching — and Music already does this natively.** The full-screen
-player derives its whole background from the artwork: a warm brown behind a
-gold-lit cover, periwinkle behind a grey one, with the transport glyphs tinted
-to match. That is Apple's own treatment, on the same device, from the same
-artwork we are trying to match. It is a working reference implementation sitting
-one screen away.
+**Colour matching — settled on device, and the answer is "extract it ourselves".**
 
-Two things follow:
+The plan was to read the palette Apple computed for the full-screen player
+rather than derive a worse one from the same artwork. SwiftPeek 0.5.4 answered
+that with a focused walk of the player (`focus_root` on
+`MusicApplication.TintColorObservingView`, depth 8):
 
-1. **Prefer reading Music's palette over computing our own.** `M27ColorTheme`
-   extracts colours from a `UIImage`; Music has already done that work and got a
-   better answer. The catalog names the machinery —
-   `MusicApplication.PaletteContainerView` carries `backgroundView`,
-   `containerView`, `gradientLayer` and `destOverLayer`, and there is a
-   `PaletteViewController` / `PaletteTabBarController` family around it. Music27
-   already *hides* `PaletteContainerView` (it is the bottom blur backdrop), so
-   the type is proven present on device — what is unknown is where the colour
-   itself is published and whether it is readable without an unsafe field walk.
-2. **The catalog is 16.7-derived, so confirm on device first.** This is exactly
-   the trap that cost 1.1.36 two builds — `NowPlayingControlsViewController`'s
-   names did not survive to 17.3. Dump the now-playing screen's layer tree with
-   `nowplaying_tree` and find which layer actually carries the background colour
-   before trusting any of the names above.
+```
+d1  MusicLyricsBackgroundView   {0,0,375,812}   gradient=[clear → rgba(0,0,0,1.00)]
+d2    MTKView                   {0,0,375,812}
+d2    …Gradient.View            alpha=0.40       gradient=[clear → black]
+d2    MusicApplication.BackdropView  hidden
+```
 
-If the palette turns out not to be readable, `M27ColorTheme` remains the
-fallback — but it should be the fallback, not the first attempt.
+**`MTKView` — the player's background is rendered in Metal.** There is no
+CGColor to read; the colour is computed on the GPU. The only gradients on that
+screen are `clear → black` legibility scrims. So the palette cannot be copied,
+and this is a measured result rather than an assumption.
+
+Two things this settles in our favour:
+
+1. **`M27ColorTheme` already works.** The same dumps show our own extraction
+   running on device — the wash on the album page carries
+   `rgba(0.38,0.35,0.36,0.45) → rgba(0.21,0.19,0.20,0.18) → clear`, which is
+   `M27ApplyWash`'s exact 0.45 / 0.18 / clear constants over an artwork-derived
+   colour, and the glass pills carry `rgba(0.85,0.77,0.81,0.10)` from
+   `applyPaletteTintToGlass`. Nothing needs building; it needs placing.
+2. **`PaletteContainerView` is not the palette.** Its gradient reads
+   `rgba(0.90,0.90,0.90,0.80)` in light mode and `rgba(0.00,0.00,0.00,0.80)` in
+   dark — it tracks the *theme*, not the artwork. The name is misleading and
+   would have cost a build.
+
+**Where the wash actually goes.** It is applied to the album detail
+controller's root `UIView {0,0,375,812}`, which also has an opaque black
+`backgroundColor` and **one unvisited child** (`truncated: 1`) filling the same
+frame. That child is the next thing to identify — the fix is either inserting
+above it or colouring it directly, not moving the wash further back.
+
+**The full-screen player, measured** (tweak off, iPhone13,1 / 17.3, 375×812) —
+what 1.1.36 needed and never had:
+
+| View | Frame |
+|------|-------|
+| `NowPlayingContentView` | `{24,92,327,327}` |
+| └ `MusicArtworkComponentImageView` | `{44,44,239,239}` |
+| `NowPlayingTransportControlStackView` | `{62,24,252,113}` |
+| └ 3 × `NowPlayingTransportButton` | 40×40 |
+| `VolumeSlider` | `{33,140,309,40}` |
+| `PlayerTimeControl` | `{32,524,311,42}` |
+| `AudioTraitButton` | `{146,552,83,15}` |
+| `_UIGrabber` | `{170,56,36,5}` |
+| `NowPlayingShuffleButton` | `{-23,66,28,28}`, **hidden** |
+
+That last row is the control 1.1.38 fired by accident, confirmed off-screen at
+negative x. Also present and worth knowing: the player contains real SwiftUI
+(`SwiftUI._UIInheritedView`, `_UIGraphicsView`, a generic-mangled
+`UIHostingContentView` for the Reactions button), even though SwiftPeek's own
+host detector reported `hosts_found: 0` — its matcher misses the mangled generic
+form.
 
 **Where the wash has to go.** Measured, not guessed: the album page's
 `UICollectionView` reports `bg 1.00`, and the wash is currently inserted at
