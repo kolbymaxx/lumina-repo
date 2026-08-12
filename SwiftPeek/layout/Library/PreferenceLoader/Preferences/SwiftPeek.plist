@@ -17,7 +17,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>0.5.0: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background, and layer/gradient colour), a depth-3 view subtree per window, plus the SwiftUI host tree. SpringBoard needs its own two switches below. Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit the target app after changing anything.</string>
+			<string>0.5.1: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background, and layer/gradient colour), a view subtree per window whose depth and focus you set under Deep Dive, plus the SwiftUI host tree. SpringBoard needs its own two switches below. Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit the target app after changing anything.</string>
 			<key>label</key>
 			<string>SwiftPeek</string>
 		</dict>
@@ -245,7 +245,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>How far the view subtree walk goes, and where it aims. Depth 3 answers “is my overlay composited”; it is far too shallow to find which view paints a colour — the first 0.5.0 Music dump hit the cap several levels above anything interesting. Focus restarts the depth budget at any view whose class name contains the text, so the budget goes where the question is. Give it something specific: NowPlaying, Palette, DetailHeader. A generic string like UIView matches everything and wastes the walk.</string>
+			<string>How far the view subtree walk goes, and where it aims. Depth 3 answers “is my overlay composited”; it is far too shallow to find which view paints a colour — the first Music dump with layer colour hit the cap several levels above anything interesting. Focus restarts the depth budget at any view whose class name contains the text, so the budget goes where the question is. Give it something specific: NowPlaying, Palette, DetailHeader. A generic string like UIView matches everything and wastes the walk.</string>
 			<key>label</key>
 			<string>Deep Dive</string>
 		</dict>
@@ -301,7 +301,7 @@
 			<key>footerText</key>
 			<string>SwiftPeek went Music-only at 0.2.1 after putting SpringBoard into Safe Mode. 0.4.0 allows SpringBoard again for recon only: ObjC-only, no hooks, no swizzles, no Swift metadata walks. Icon Inventory reads each app's artwork through UIKit (never SBIconModel) and records pixel statistics. Scan Windows walks the already-loaded view tree to tell UIKit surfaces from SwiftUI-hosted ones — that is what fills in Glyph's PENDING DUMP rows. Both need Target SpringBoard on, and all three default off. Respring after changing.</string>
 			<key>label</key>
-			<string>SpringBoard Recon (0.4.0)</string>
+			<string>SpringBoard Recon</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>

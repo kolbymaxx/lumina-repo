@@ -26,6 +26,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Runs before the toolchain so a version slip fails in seconds rather than
+      # after a five-minute build — and before the flaky Theos setup step, so it
+      # still reports when that is having a bad day.
+      - name: Version strings agree
+        run: ./scripts/check-swiftpeek-version.sh
+
       - name: Install build deps
         run: |
           brew install ldid dpkg make
@@ -136,6 +142,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Runs before the toolchain so a version slip fails in seconds rather than
+      # after a five-minute build — and before the flaky Theos setup step, so it
+      # still reports when that is having a bad day.
+      - name: Version strings agree
+        run: ./scripts/check-swiftpeek-version.sh
 
       - name: Install build deps
         run: |
