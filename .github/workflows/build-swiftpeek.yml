@@ -37,7 +37,33 @@ jobs:
           brew install ldid dpkg make
           echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
 
+      # RETRIED, BECAUSE THIS STEP IS THE ONLY THING THAT EVER FAILS HERE.
+      #
+      # Six failures on 2026-08-11, none of them in our code, all inside this
+      # action's network setup and all cleared by a re-run:
+      #
+      #   TLS to api.github.com (cache-key)      x3
+      #   submodule fetch vendor/nic, vendor/logos
+      #   submodule fetch vendor/orion
+      #
+      # A retry action cannot wrap another action, so the first attempt is
+      # allowed to fail and a second identical step runs only if it did. Two
+      # attempts, no third-party dependency, and a genuine failure still fails
+      # the build because the second attempt is not itself forgiven.
       - name: Setup Theos
+        id: theos
+        continue-on-error: true
+        uses: waruhachi/theos-action@v2.4.6
+        with:
+          theos-src: 'theos/theos'
+          theos-branch: 'master'
+          sdks-src: 'theos/sdks'
+          sdks-branch: 'master'
+          libgcuniversal: 'false'
+          altlist: 'false'
+
+      - name: Setup Theos (retry)
+        if: steps.theos.outcome == 'failure'
         uses: waruhachi/theos-action@v2.4.6
         with:
           theos-src: 'theos/theos'
@@ -154,7 +180,33 @@ jobs:
           brew install ldid dpkg make
           echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
 
+      # RETRIED, BECAUSE THIS STEP IS THE ONLY THING THAT EVER FAILS HERE.
+      #
+      # Six failures on 2026-08-11, none of them in our code, all inside this
+      # action's network setup and all cleared by a re-run:
+      #
+      #   TLS to api.github.com (cache-key)      x3
+      #   submodule fetch vendor/nic, vendor/logos
+      #   submodule fetch vendor/orion
+      #
+      # A retry action cannot wrap another action, so the first attempt is
+      # allowed to fail and a second identical step runs only if it did. Two
+      # attempts, no third-party dependency, and a genuine failure still fails
+      # the build because the second attempt is not itself forgiven.
       - name: Setup Theos (roothide fork)
+        id: theos_rh
+        continue-on-error: true
+        uses: waruhachi/theos-action@v2.4.6
+        with:
+          theos-src: 'roothide/theos'
+          theos-branch: 'master'
+          sdks-src: 'theos/sdks'
+          sdks-branch: 'master'
+          libgcuniversal: 'false'
+          altlist: 'false'
+
+      - name: Setup Theos (roothide fork) (retry)
+        if: steps.theos_rh.outcome == 'failure'
         uses: waruhachi/theos-action@v2.4.6
         with:
           theos-src: 'roothide/theos'
