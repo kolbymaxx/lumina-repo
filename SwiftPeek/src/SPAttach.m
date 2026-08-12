@@ -921,11 +921,12 @@ static void SPAppendViewTree(UIView *view, NSInteger depth,
         // more here", so a reader has to notice the subview count and do the
         // arithmetic. That is the same trap as a diagnostic that logs nothing
         // on success: two very different states rendering identically.
+        // `node` is the dictionary just appended, and the array holds a
+        // reference to it — so set the key here rather than reaching back
+        // through `out.lastObject`, which is typed NSDictionary and does not
+        // survive -Werror.
         if (view.subviews.count > 0) {
-            NSMutableDictionary *last = out.lastObject;
-            if ([last isKindOfClass:NSMutableDictionary.class]) {
-                last[@"truncated"] = @(view.subviews.count);
-            }
+            node[@"truncated"] = @(view.subviews.count);
         }
         return;
     }
