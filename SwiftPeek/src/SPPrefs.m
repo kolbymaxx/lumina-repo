@@ -91,3 +91,40 @@ void SPPrefsInvalidate(void) {
     gSPPrefsCache = nil;
     gSPPrefsLastLoad = 0;
 }
+
+NSInteger SPPrefInteger(NSString *key, NSInteger fallback) {
+    CFPreferencesAppSynchronize((__bridge CFStringRef)kSPPrefsDomain);
+    CFPropertyListRef cfVal = CFPreferencesCopyAppValue(
+        (__bridge CFStringRef)key, (__bridge CFStringRef)kSPPrefsDomain);
+    if (cfVal != NULL) {
+        NSInteger result = fallback;
+        if (CFGetTypeID(cfVal) == CFNumberGetTypeID()) {
+            long long n = 0;
+            CFNumberGetValue((CFNumberRef)cfVal, kCFNumberLongLongType, &n);
+            result = (NSInteger)n;
+        } else if (CFGetTypeID(cfVal) == CFStringGetTypeID()) {
+            result = [(__bridge NSString *)cfVal integerValue];
+        }
+        CFRelease(cfVal);
+        return result;
+    }
+    id v = SPPrefs()[key];
+    if ([v respondsToSelector:@selector(integerValue)]) return [v integerValue];
+    return fallback;
+}
+
+NSString *SPPrefString(NSString *key) {
+    CFPreferencesAppSynchronize((__bridge CFStringRef)kSPPrefsDomain);
+    CFPropertyListRef cfVal = CFPreferencesCopyAppValue(
+        (__bridge CFStringRef)key, (__bridge CFStringRef)kSPPrefsDomain);
+    if (cfVal != NULL) {
+        NSString *result = nil;
+        if (CFGetTypeID(cfVal) == CFStringGetTypeID()) {
+            result = [(__bridge NSString *)cfVal copy];
+        }
+        CFRelease(cfVal);
+        if (result.length) return result;
+    }
+    id v = SPPrefs()[key];
+    return [v isKindOfClass:NSString.class] && [v length] ? v : nil;
+}

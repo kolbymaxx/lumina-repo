@@ -1,9 +1,9 @@
 Package: com.kolby.swiftpeek
 Name: SwiftPeek
 Depends: mobilesubstrate, preferenceloader
-Version: 0.5.0
+Version: 0.5.1
 Architecture: iphoneos-arm64
-Description: Read-only SwiftUI + window-tree inspector. 0.5.0 merges the window/view-tree dumps and pref-driven per-process targets with the SpringBoard recon mode (icon inventory, pixel signatures, hook-free hosting-view scan), and reports layer-level colour so an artwork-derived background can be located. No hooks, no FOVO, every target defaults off. Debug tooling; not published.
+Description: Read-only SwiftUI + window-tree inspector. 0.5.1 makes the view-walk depth, node budget and a focus class settable, so a dump can reach the view that actually paints a colour instead of stopping in the transition-view scaffolding above it. Layer and gradient colour reported since 0.5.0. No hooks, no FOVO, every target defaults off. Debug tooling; not published.
 Maintainer: ma6x9x
 Author: ma6x9x
 Section: Tweaks

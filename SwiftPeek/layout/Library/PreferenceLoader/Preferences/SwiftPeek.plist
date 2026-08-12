@@ -35,7 +35,6 @@
 			<key>label</key>
 			<string>Enable SwiftPeek</string>
 		</dict>
-
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -100,7 +99,6 @@
 			<key>label</key>
 			<string>Settings</string>
 		</dict>
-
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -137,7 +135,6 @@
 			<key>label</key>
 			<string>assistantd</string>
 		</dict>
-
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
@@ -186,7 +183,7 @@
 			<key>key</key>
 			<string>dumpWindowViews</string>
 			<key>label</key>
-			<string>Window View Subtree (depth 3)</string>
+			<string>Window View Subtree</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -243,6 +240,60 @@
 			<string>logAttach</string>
 			<key>label</key>
 			<string>Log Attach (os_log / NSLog)</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>How far the view subtree walk goes, and where it aims. Depth 3 answers “is my overlay composited”; it is far too shallow to find which view paints a colour — the first 0.5.0 Music dump hit the cap several levels above anything interesting. Focus restarts the depth budget at any view whose class name contains the text, so the budget goes where the question is. Give it something specific: NowPlaying, Palette, DetailHeader. A generic string like UIView matches everything and wastes the walk.</string>
+			<key>label</key>
+			<string>Deep Dive</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSTextFieldCell</string>
+			<key>default</key>
+			<string>3</string>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>viewTreeDepth</string>
+			<key>keyboardType</key>
+			<string>NumberPad</string>
+			<key>label</key>
+			<string>Depth</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSTextFieldCell</string>
+			<key>default</key>
+			<string>48</string>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>viewTreeNodes</string>
+			<key>keyboardType</key>
+			<string>NumberPad</string>
+			<key>label</key>
+			<string>Max nodes</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSTextFieldCell</string>
+			<key>default</key>
+			<string></string>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>key</key>
+			<string>viewTreeFocus</string>
+			<key>label</key>
+			<string>Focus class contains</string>
 		</dict>
 		<dict>
 			<key>cell</key>

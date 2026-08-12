@@ -821,16 +821,66 @@ static void SPAppendLayerColors(UIView *view, NSMutableDictionary *node) {
     }
 }
 
-static const NSInteger kSPViewTreeMaxDepth = 3;
-static const NSInteger kSPViewTreeMaxNodes = 48;
+/// THE CAPS ARE THE REASON A DUMP CAN COME BACK LOOKING LIKE A DEAD END.
+///
+/// Depth 3 across 48 nodes is right for "is my overlay window composited" —
+/// the question 0.4.1 was built for. It is wrong for "which view is painting
+/// this colour": the first real 0.5.0 dump of Music returned 13 views across 3
+/// windows and hit the depth cap immediately, several levels above anything
+/// interesting. A walk that stops early and a walk that finds nothing produce
+/// the same empty result, which is exactly the failure mode this tool exists to
+/// prevent.
+///
+/// So the caps are prefs. Defaults match 0.4.1 so an existing dump is unchanged,
+/// and the ceilings are there because an unbounded walk of SpringBoard is not a
+/// diagnostic, it is a hang.
+static NSInteger SPViewTreeMaxDepth(void) {
+    NSInteger d = SPPrefInteger(@"viewTreeDepth", 3);
+    return MAX(1, MIN(d, 12));
+}
+
+static NSInteger SPViewTreeMaxNodes(void) {
+    NSInteger n = SPPrefInteger(@"viewTreeNodes", 48);
+    return MAX(8, MIN(n, 600));
+}
+
 static const NSInteger kSPViewTreeMaxSiblings = 12;
+
+/// Optional substring. When set, any view whose class name contains it is
+/// treated as a fresh root: its subtree is walked from depth 0 again, so the
+/// budget goes where the question is instead of being spent on the twelve
+/// levels of `UITransitionView` / `UIDropShadowView` scaffolding above it.
+///
+/// This is what lets one dump answer "what paints the now-playing background"
+/// without lifting the global depth to something that would take SpringBoard
+/// with it.
+///
+/// Give it something specific. A substring like `UIView` matches almost every
+/// node, restarts the budget at each one, and turns the walk into "everything
+/// until `viewTreeNodes` runs out" — bounded, but useless. `NowPlaying`,
+/// `Palette` or `DetailHeader` are the shape of a useful answer.
+static NSString *SPViewTreeFocus(void) {
+    return SPPrefString(@"viewTreeFocus");
+}
 
 /// Shallow view walk under a window. Class name, geometry and the handful of
 /// properties that decide whether something is on screen at all. No field
 /// walking, no Swift metadata, no forcing of lazily-loaded views.
 static void SPAppendViewTree(UIView *view, NSInteger depth,
                              NSMutableArray<NSDictionary *> *out) {
-    if (!view || out.count >= kSPViewTreeMaxNodes) return;
+    NSInteger maxNodes = SPViewTreeMaxNodes();
+    if (!view || out.count >= maxNodes) return;
+
+    // A focus match restarts the depth budget here, and says so in the dump so
+    // a reader is not left wondering why the numbering jumps.
+    BOOL refocused = NO;
+    NSString *focus = SPViewTreeFocus();
+    if (focus.length) {
+        const char *cn = object_getClassName(view);
+        if (cn && strstr(cn, focus.UTF8String) != NULL && depth > 0) {
+            refocused = YES;
+        }
+    }
 
     CGRect f = view.frame;
     NSMutableDictionary *node = [@{
@@ -858,14 +908,16 @@ static void SPAppendViewTree(UIView *view, NSInteger depth,
         // Tweaks tag their views; 'M27D' etc. read better as FourCC.
         node[@"tag"] = @(view.tag);
     }
+    if (refocused) node[@"focus_root"] = @YES;
     [out addObject:node];
 
-    if (depth >= kSPViewTreeMaxDepth) return;
+    NSInteger childDepth = refocused ? 1 : depth + 1;
+    if (!refocused && depth >= SPViewTreeMaxDepth()) return;
     NSInteger siblings = 0;
     for (UIView *sub in view.subviews) {
         if (siblings++ >= kSPViewTreeMaxSiblings) break;
-        if (out.count >= kSPViewTreeMaxNodes) break;
-        SPAppendViewTree(sub, depth + 1, out);
+        if (out.count >= maxNodes) break;
+        SPAppendViewTree(sub, childDepth, out);
     }
 }
 
@@ -930,7 +982,7 @@ static NSArray<NSDictionary *> *SPCollectWindowTree(void) {
             if (SPPrefBool(@"dumpWindowViews", YES)) {
                 NSMutableArray<NSDictionary *> *views = [NSMutableArray array];
                 for (UIView *sub in w.subviews) {
-                    if (views.count >= kSPViewTreeMaxNodes) break;
+                    if (views.count >= SPViewTreeMaxNodes()) break;
                     SPAppendViewTree(sub, 0, views);
                 }
                 if (views.count) entry[@"views"] = views;
@@ -1215,7 +1267,7 @@ static void SPStartIfEnabled(void) {
         // is what resolves Glyph's PENDING DUMP surface rows.
         if (!SPPrefBool(@"enabled", NO) || !SPPrefBool(@"targetSpringBoard", NO)) return;
         BOOL sbScan = SPPrefBool(@"sbScanWindows", NO);
-        NSLog(@"[SwiftPeek] SpringBoard recon mode (0.5.0) iconInventory=%d sbScanWindows=%d",
+        NSLog(@"[SwiftPeek] SpringBoard recon mode (0.5.1) iconInventory=%d sbScanWindows=%d",
               SPPrefBool(@"iconInventory", NO) ? 1 : 0, sbScan ? 1 : 0);
         SPRunIconInventory(@"launch");
 
@@ -1257,7 +1309,7 @@ static void SPStartIfEnabled(void) {
     dispatch_once(&launchOnce, ^{
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
             NSString *msg = [NSString stringWithFormat:
-                @"%@ launch probe (0.5.0) scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
+                @"%@ launch probe (0.5.1) scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
                 NSProcessInfo.processInfo.processName ?: @"?",
                 scanOn ? 1 : 0, hooksOn ? 1 : 0, fieldsOn ? 1 : 0, metaOn ? 1 : 0];
             SPWriteHeartbeat(msg, NO, @[], @[]);
