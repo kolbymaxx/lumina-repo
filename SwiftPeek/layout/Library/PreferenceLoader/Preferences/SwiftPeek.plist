@@ -17,7 +17,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>0.5.4: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background, and layer/gradient colour), a view subtree per window whose depth and focus you set under Deep Dive, plus the SwiftUI host tree. SpringBoard needs its own two switches below. Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit the target app after changing anything.</string>
+			<string>0.5.5: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background, and layer/gradient colour), a view subtree per window whose depth and focus you set under Deep Dive, plus the SwiftUI host tree. SpringBoard needs its own two switches below. Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit the target app after changing anything.</string>
 			<key>label</key>
 			<string>SwiftPeek</string>
 		</dict>

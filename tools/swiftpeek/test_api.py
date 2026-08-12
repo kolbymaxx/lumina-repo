@@ -349,3 +349,42 @@ class TruncationTests(unittest.TestCase):
         hit = [r for r in rows if r.strip().startswith("UIView")]
         self.assertEqual(len(hit), 1)
         self.assertNotIn("STOPPED", hit[0])
+
+
+class SwiftUIDetectionTests(unittest.TestCase):
+    """0.5.5: hosts_found answered the wrong question on a SwiftUI screen."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not DEFAULT_CATALOG.is_file():
+            raise unittest.SkipTest(f"missing catalog {DEFAULT_CATALOG}")
+        cls.catalog = FieldCatalog(DEFAULT_CATALOG)
+
+    def test_swiftui_view_is_flagged(self):
+        sample = json.loads(json.dumps(WINDOW_SAMPLE))
+        sample["swiftui_views"] = 3
+        sample["windows"][0]["views"] = [{
+            "depth": 0, "class": "SwiftUI._UIGraphicsView", "frame": "{0,0,28,28}",
+            "hidden": False, "alpha": 1.0, "swiftui": True,
+        }]
+        sess = PeekSession(sample, self.catalog)
+        row = [r for r in sess.windows_table(views=True) if "_UIGraphicsView" in r]
+        self.assertEqual(len(row), 1)
+        self.assertIn("SwiftUI", row[0])
+        self.assertEqual(sess.summary()["swiftui_views"], 3)
+
+    def test_uikit_view_is_not_flagged(self):
+        sample = json.loads(json.dumps(WINDOW_SAMPLE))
+        sample["windows"][0]["views"] = [{
+            "depth": 0, "class": "UIView", "frame": "{0,0,28,28}",
+            "hidden": False, "alpha": 1.0,
+        }]
+        rows = PeekSession(sample, self.catalog).windows_table(views=True)
+        hit = [r for r in rows if r.strip().startswith("UIView")]
+        self.assertEqual(len(hit), 1)
+        self.assertNotIn("SwiftUI", hit[0])
+
+    def test_old_dump_reports_none_not_zero(self):
+        """A 0.5.4 dump could not count these; that must not read as 'none here'."""
+        sess = PeekSession(WINDOW_SAMPLE, self.catalog)
+        self.assertIsNone(sess.summary()["swiftui_views"])

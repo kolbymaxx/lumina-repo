@@ -176,6 +176,10 @@ class PeekSession:
         cut = node.get("truncated")
         if cut:
             flags.append(f"<-- STOPPED, {cut} more below")
+        # SwiftPeek 0.5.5+. Drawn by SwiftUI itself, as opposed to a UIKit host
+        # wrapping one — the question "is this surface worth attacking".
+        if node.get("swiftui"):
+            flags.append("SwiftUI")
         return flags
 
     def windows_table(self, *, views: bool = False) -> list[str]:
@@ -224,6 +228,7 @@ class PeekSession:
             "nodes": len(nodes),
             "windows": len(self.windows),
             "matched_nodes": ann.get("matched_nodes"),
+            "swiftui_views": self.dump.get("swiftui_views"),
             "catalog_types": ann.get("catalog_types", len(self.catalog)),
             "with_fields": sum(1 for n in nodes if n.get("offline_fields")),
             "with_strings": sum(1 for n in nodes if n.get("screen_strings")),

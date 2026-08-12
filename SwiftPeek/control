@@ -1,9 +1,9 @@
 Package: com.kolby.swiftpeek
 Name: SwiftPeek
 Depends: mobilesubstrate, preferenceloader
-Version: 0.5.4
+Version: 0.5.5
 Architecture: iphoneos-arm64
-Description: Read-only SwiftUI + window-tree inspector. 0.5.4 adds an optional repeating window scan, because the two scans at 5s and 12s after launch cannot capture a screen you navigate to afterwards. 0.5.3 marks nodes the walk stopped at; 0.5.0 added layer and gradient colour. No hooks, no FOVO, every target defaults off. Debug tooling; not published.
+Description: Read-only SwiftUI + window-tree inspector. 0.5.5 fixes the SwiftUI host matcher, which missed UIHostingContentView entirely and so reported hosts_found 0 on screens that are SwiftUI, and adds a separate swiftui_views count for views SwiftUI draws itself. 0.5.4 added a repeating scan; 0.5.0 added layer and gradient colour. No hooks, no FOVO, every target defaults off. Debug tooling; not published.
 Maintainer: ma6x9x
 Author: ma6x9x
 Section: Tweaks

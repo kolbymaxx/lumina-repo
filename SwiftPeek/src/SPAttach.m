@@ -155,10 +155,42 @@ static BOOL SPClassNameLooksLikeHostingView(const char *name) {
     if (!name) return NO;
     if (strstr(name, "_UIHostingView") != NULL) return YES;
     if (strstr(name, "UIHostingView") != NULL) return YES;
+    // `UIHostingContentView` — NOT covered by the three checks above, because
+    // none of them is a substring of it: it spells Hosting*Content*View.
+    //
+    // Found by using the tool. A 0.5.4 dump of Music's full-screen player
+    // reported `hosts_found: 0` while the tree plainly contained
+    //
+    //   _TtGC7SwiftUIP10$1b098ce7420UIHostingContentViewVO11MusicCoreUI…
+    //
+    // so the one number a consumer reads to answer "is this screen SwiftUI"
+    // said no on a screen that is. Three years of "hosts=0" results in this
+    // repo's notes may be this bug rather than an absence of SwiftUI.
+    if (strstr(name, "UIHostingContentView") != NULL) return YES;
     // Mangled Swift generics often embed HostingView without the UIKit spelling.
     if (strstr(name, "HostingView") != NULL && strstr(name, "Controller") == NULL) {
         return YES;
     }
+    return NO;
+}
+
+/// A view drawn by SwiftUI itself, as opposed to a UIKit host wrapping one.
+///
+/// `hosts_found` answers "where is SwiftUI plugged into UIKit here". It does not
+/// answer "does this screen contain SwiftUI at all", and those come apart: the
+/// player's tree carries `SwiftUI._UIInheritedView`, `SwiftUI._UIGraphicsView`
+/// and `_TtC7SwiftUIP33_…_UIShapeHitTestingView` under one host, and a consumer
+/// deciding whether a surface is worth attacking cares about the second
+/// question.
+///
+/// Reported separately rather than folded into `hosts_found`, so a dump written
+/// by an older build keeps meaning what it meant.
+static BOOL SPClassNameIsSwiftUIDrawn(const char *name) {
+    if (!name) return NO;
+    // Demangled: "SwiftUI.Foo". Mangled: "_TtC7SwiftUI…" / "_TtGC7SwiftUI…",
+    // where 7 is the length of the module name.
+    if (strncmp(name, "SwiftUI.", 8) == 0) return YES;
+    if (strstr(name, "C7SwiftUI") != NULL) return YES;
     return NO;
 }
 
@@ -846,6 +878,9 @@ static NSInteger SPViewTreeMaxNodes(void) {
 
 static const NSInteger kSPViewTreeMaxSiblings = 12;
 
+/// Reset per scan by SPCollectWindowTree; reported as `swiftui_views`.
+static NSInteger gSPSwiftUIViewsSeen = 0;
+
 /// Optional substring. When set, any view whose class name contains it is
 /// treated as a fresh root: its subtree is walked from depth 0 again, so the
 /// budget goes where the question is instead of being spent on the twelve
@@ -908,6 +943,10 @@ static void SPAppendViewTree(UIView *view, NSInteger depth,
         // Tweaks tag their views; 'M27D' etc. read better as FourCC.
         node[@"tag"] = @(view.tag);
     }
+    if (SPClassNameIsSwiftUIDrawn(object_getClassName(view))) {
+        node[@"swiftui"] = @YES;
+        gSPSwiftUIViewsSeen++;
+    }
     if (refocused) node[@"focus_root"] = @YES;
     [out addObject:node];
 
@@ -939,6 +978,7 @@ static void SPAppendViewTree(UIView *view, NSInteger depth,
 }
 
 static NSArray<NSDictionary *> *SPCollectWindowTree(void) {
+    gSPSwiftUIViewsSeen = 0;
     NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
     @try {
         NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
@@ -1249,7 +1289,12 @@ static void SPScanWindowsForHosts(void) {
                 @"nodes": nodes,
                 @"hosts_found": @(hostsCopy),
             } mutableCopy];
-            if (windowTree.count) payload[@"windows"] = windowTree;
+            if (windowTree.count) {
+                payload[@"windows"] = windowTree;
+                // Reported even when zero: "no SwiftUI here" is an answer, and
+                // an absent key reads as "this build could not tell".
+                payload[@"swiftui_views"] = @(gSPSwiftUIViewsSeen);
+            }
             // Class sample only — no FOVO. Safe when hosts=0 on Music 16.7.
             if (enrichMeta && hostsCopy == 0 && sampleCopy.count) {
                 payload[@"view_class_sample"] = sampleCopy;
@@ -1308,7 +1353,7 @@ static void SPStartIfEnabled(void) {
         // is what resolves Glyph's PENDING DUMP surface rows.
         if (!SPPrefBool(@"enabled", NO) || !SPPrefBool(@"targetSpringBoard", NO)) return;
         BOOL sbScan = SPPrefBool(@"sbScanWindows", NO);
-        NSLog(@"[SwiftPeek] SpringBoard recon mode (0.5.4) iconInventory=%d sbScanWindows=%d",
+        NSLog(@"[SwiftPeek] SpringBoard recon mode (0.5.5) iconInventory=%d sbScanWindows=%d",
               SPPrefBool(@"iconInventory", NO) ? 1 : 0, sbScan ? 1 : 0);
         SPRunIconInventory(@"launch");
 
@@ -1350,7 +1395,7 @@ static void SPStartIfEnabled(void) {
     dispatch_once(&launchOnce, ^{
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
             NSString *msg = [NSString stringWithFormat:
-                @"%@ launch probe (0.5.4) scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
+                @"%@ launch probe (0.5.5) scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
                 NSProcessInfo.processInfo.processName ?: @"?",
                 scanOn ? 1 : 0, hooksOn ? 1 : 0, fieldsOn ? 1 : 0, metaOn ? 1 : 0];
             SPWriteHeartbeat(msg, NO, @[], @[]);
