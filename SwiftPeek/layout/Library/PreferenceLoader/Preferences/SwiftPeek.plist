@@ -17,7 +17,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>0.5.3: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background, and layer/gradient colour), a view subtree per window whose depth and focus you set under Deep Dive, plus the SwiftUI host tree. SpringBoard needs its own two switches below. Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit the target app after changing anything.</string>
+			<string>0.5.4: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background, and layer/gradient colour), a view subtree per window whose depth and focus you set under Deep Dive, plus the SwiftUI host tree. SpringBoard needs its own two switches below. Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit the target app after changing anything.</string>
 			<key>label</key>
 			<string>SwiftPeek</string>
 		</dict>
@@ -245,7 +245,11 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>How far the view subtree walk goes, and where it aims. Focus restarts the depth budget at any view whose class name contains the text, so the budget goes where the question is. It matches VIEW classes, not controllers — “NowPlaying” names a controller and will never match, which is what the first attempt got wrong. Real view classes on this device: TintColorObserving (the full-screen player's content root), Palette, DetailHeader, NavigationBar. A node that stopped at the depth cap is marked with how many children it did not visit, so a truncated walk cannot be mistaken for an empty one. For the artwork background: Depth 8, Max nodes 200, Focus TintColorObserving.</string>
+			<string>How far the view subtree walk goes, where it aims, and how often it runs. Focus restarts the depth budget at any view whose class name contains the text — it matches VIEW classes, not controllers, so “NowPlaying” never matches. Real ones here: TintColorObserving (the full-screen player's content root), Palette, DetailHeader. A node stopped by the depth cap is marked with how many children it did not visit.
+
+Repeat scan exists because the two scans at 5s and 12s after launch cannot catch a screen you navigate to afterwards — three attempts at the full-screen player all dumped whatever was up at 12 seconds instead. Set it, open the screen you care about, and wait one interval. It stops after 40 scans.
+
+For the artwork background: Depth 8, Max nodes 200, Focus TintColorObserving, Repeat every 10s, then open the full-screen player and wait.</string>
 			<key>label</key>
 			<string>Deep Dive</string>
 		</dict>
@@ -332,6 +336,36 @@
 			<string>Focus</string>
 			<key>placeholder</key>
 			<string>TintColorObserving</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.kolby.swiftpeek/prefschanged</string>
+			<key>cell</key>
+			<string>PSLinkListCell</string>
+			<key>default</key>
+			<integer>0</integer>
+			<key>defaults</key>
+			<string>com.kolby.swiftpeek</string>
+			<key>detail</key>
+			<string>PSListItemsController</string>
+			<key>key</key>
+			<string>scanRepeat</string>
+			<key>label</key>
+			<string>Repeat scan</string>
+			<key>validTitles</key>
+			<array>
+				<string>Off (default)</string>
+				<string>Every 10s</string>
+				<string>Every 20s</string>
+				<string>Every 30s</string>
+			</array>
+			<key>validValues</key>
+			<array>
+				<integer>0</integer>
+				<integer>10</integer>
+				<integer>20</integer>
+				<integer>30</integer>
+			</array>
 		</dict>
 		<dict>
 			<key>cell</key>

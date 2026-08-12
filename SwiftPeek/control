@@ -1,9 +1,9 @@
 Package: com.kolby.swiftpeek
 Name: SwiftPeek
 Depends: mobilesubstrate, preferenceloader
-Version: 0.5.3
+Version: 0.5.4
 Architecture: iphoneos-arm64
-Description: Read-only SwiftUI + window-tree inspector. 0.5.3 marks any node the walk stopped at with how many children it did not visit, so a truncated walk cannot be mistaken for an empty one, and corrects the Focus guidance — it matches view classes, not controller names. Layer and gradient colour since 0.5.0. No hooks, no FOVO, every target defaults off. Debug tooling; not published.
+Description: Read-only SwiftUI + window-tree inspector. 0.5.4 adds an optional repeating window scan, because the two scans at 5s and 12s after launch cannot capture a screen you navigate to afterwards. 0.5.3 marks nodes the walk stopped at; 0.5.0 added layer and gradient colour. No hooks, no FOVO, every target defaults off. Debug tooling; not published.
 Maintainer: ma6x9x
 Author: ma6x9x
 Section: Tweaks

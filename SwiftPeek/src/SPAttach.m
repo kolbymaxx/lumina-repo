@@ -1016,6 +1016,30 @@ static NSArray<NSDictionary *> *SPCollectWindowTree(void) {
 /// Never force `vc.view` (that blanked Music Library content) and never
 /// call objc_copyClassList here (that froze the UI on main).
 /// Writes one coalesced dump; optional M2 field/screen enrichment off-main.
+static const NSInteger kSPMaxRepeatScans = 40;
+static NSInteger gSPRepeatScansLeft = 0;
+
+static void SPScanWindowsForHosts(void);
+
+/// Repeat the window scan every `scanRepeat` seconds, when that pref is set.
+///
+/// Re-reads the interval each time rather than capturing it, so turning the
+/// pref off in Settings stops the loop at the next tick instead of running to
+/// the cap. Bounded by kSPMaxRepeatScans because each scan writes a dump.
+static void SPScheduleNextRepeatScan(void) {
+    NSInteger every = SPPrefInteger(@"scanRepeat", 0);
+    if (every <= 0 || gSPRepeatScansLeft <= 0) return;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((double)every * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (!SPPrefBool(@"enabled", NO) || !SPPrefBool(@"scanWindows", NO)) return;
+        if (SPPrefInteger(@"scanRepeat", 0) <= 0) return;
+        if (gSPRepeatScansLeft <= 0) return;
+        gSPRepeatScansLeft--;
+        SPScanWindowsForHosts();
+        SPScheduleNextRepeatScan();
+    });
+}
+
 static void SPScanWindowsForHosts(void) {
     if (!SPPrefBool(@"enabled", NO)) return;
     @try {
@@ -1284,7 +1308,7 @@ static void SPStartIfEnabled(void) {
         // is what resolves Glyph's PENDING DUMP surface rows.
         if (!SPPrefBool(@"enabled", NO) || !SPPrefBool(@"targetSpringBoard", NO)) return;
         BOOL sbScan = SPPrefBool(@"sbScanWindows", NO);
-        NSLog(@"[SwiftPeek] SpringBoard recon mode (0.5.3) iconInventory=%d sbScanWindows=%d",
+        NSLog(@"[SwiftPeek] SpringBoard recon mode (0.5.4) iconInventory=%d sbScanWindows=%d",
               SPPrefBool(@"iconInventory", NO) ? 1 : 0, sbScan ? 1 : 0);
         SPRunIconInventory(@"launch");
 
@@ -1326,7 +1350,7 @@ static void SPStartIfEnabled(void) {
     dispatch_once(&launchOnce, ^{
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
             NSString *msg = [NSString stringWithFormat:
-                @"%@ launch probe (0.5.3) scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
+                @"%@ launch probe (0.5.4) scanWindows=%d installHooks=%d dumpFields=%d dumpFieldMeta=%d",
                 NSProcessInfo.processInfo.processName ?: @"?",
                 scanOn ? 1 : 0, hooksOn ? 1 : 0, fieldsOn ? 1 : 0, metaOn ? 1 : 0];
             SPWriteHeartbeat(msg, NO, @[], @[]);
@@ -1360,6 +1384,20 @@ static void SPStartIfEnabled(void) {
                     SPScanWindowsForHosts();
                 });
             }
+            // TWO SCANS AT FIXED TIMES CANNOT CATCH A SCREEN YOU NAVIGATE TO.
+            //
+            // 5s and 12s after launch is fine for "what does this app look like
+            // when it opens". It is useless for the question this tool keeps
+            // being asked: what is on screen *now*. Three attempts at capturing
+            // Music's full-screen player produced three dumps of whatever
+            // happened to be up at 12 seconds — the last one was the album page
+            // — because opening the player takes longer than that.
+            //
+            // So an optional repeat, off by default. Bounded by a scan count
+            // rather than left running, because each scan writes a dump file
+            // and an unbounded loop fills the device.
+            gSPRepeatScansLeft = kSPMaxRepeatScans;
+            SPScheduleNextRepeatScan();
         });
     }
 
