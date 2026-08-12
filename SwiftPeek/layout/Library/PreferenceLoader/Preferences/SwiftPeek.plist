@@ -17,7 +17,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>0.5.1: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background, and layer/gradient colour), a view subtree per window whose depth and focus you set under Deep Dive, plus the SwiftUI host tree. SpringBoard needs its own two switches below. Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit the target app after changing anything.</string>
+			<string>0.5.2: Read-only inspector. Enable + Scan Windows gives the window tree (level, frame, hidden, alpha, background, and layer/gradient colour), a view subtree per window whose depth and focus you set under Deep Dive, plus the SwiftUI host tree. SpringBoard needs its own two switches below. Leave Dump Field Meta and Install Hooks OFF — Music FOVO walks crash. Force-quit the target app after changing anything.</string>
 			<key>label</key>
 			<string>SwiftPeek</string>
 		</dict>
@@ -245,7 +245,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>How far the view subtree walk goes, and where it aims. Depth 3 answers “is my overlay composited”; it is far too shallow to find which view paints a colour — the first Music dump with layer colour hit the cap several levels above anything interesting. Focus restarts the depth budget at any view whose class name contains the text, so the budget goes where the question is. Give it something specific: NowPlaying, Palette, DetailHeader. A generic string like UIView matches everything and wastes the walk.</string>
+			<string>How far the view subtree walk goes, and where it aims. Depth 3 answers “is my overlay composited”; it is far too shallow to find which view paints a colour — the first Music dump with layer colour hit the cap several levels above anything interesting. Focus restarts the depth budget at any view whose class name contains the text, so the budget goes where the question is. Give it something specific: NowPlaying, Palette, DetailHeader. A generic string like UIView matches everything and wastes the walk. For the artwork background: Depth 6, Max nodes 200, Focus NowPlaying, then open the full-screen player.</string>
 			<key>label</key>
 			<string>Deep Dive</string>
 		</dict>
@@ -253,39 +253,75 @@
 			<key>PostNotification</key>
 			<string>com.kolby.swiftpeek/prefschanged</string>
 			<key>cell</key>
-			<string>PSTextFieldCell</string>
+			<string>PSLinkListCell</string>
 			<key>default</key>
-			<string>3</string>
+			<integer>3</integer>
 			<key>defaults</key>
 			<string>com.kolby.swiftpeek</string>
+			<key>detail</key>
+			<string>PSListItemsController</string>
 			<key>key</key>
 			<string>viewTreeDepth</string>
-			<key>keyboardType</key>
-			<string>NumberPad</string>
 			<key>label</key>
 			<string>Depth</string>
+			<key>validTitles</key>
+			<array>
+				<string>3 (default)</string>
+				<string>4</string>
+				<string>5</string>
+				<string>6</string>
+				<string>8</string>
+				<string>10</string>
+				<string>12</string>
+			</array>
+			<key>validValues</key>
+			<array>
+				<integer>3</integer>
+				<integer>4</integer>
+				<integer>5</integer>
+				<integer>6</integer>
+				<integer>8</integer>
+				<integer>10</integer>
+				<integer>12</integer>
+			</array>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
 			<string>com.kolby.swiftpeek/prefschanged</string>
 			<key>cell</key>
-			<string>PSTextFieldCell</string>
+			<string>PSLinkListCell</string>
 			<key>default</key>
-			<string>48</string>
+			<integer>48</integer>
 			<key>defaults</key>
 			<string>com.kolby.swiftpeek</string>
+			<key>detail</key>
+			<string>PSListItemsController</string>
 			<key>key</key>
 			<string>viewTreeNodes</string>
-			<key>keyboardType</key>
-			<string>NumberPad</string>
 			<key>label</key>
 			<string>Max nodes</string>
+			<key>validTitles</key>
+			<array>
+				<string>48 (default)</string>
+				<string>100</string>
+				<string>200</string>
+				<string>400</string>
+				<string>600</string>
+			</array>
+			<key>validValues</key>
+			<array>
+				<integer>48</integer>
+				<integer>100</integer>
+				<integer>200</integer>
+				<integer>400</integer>
+				<integer>600</integer>
+			</array>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
 			<string>com.kolby.swiftpeek/prefschanged</string>
 			<key>cell</key>
-			<string>PSTextFieldCell</string>
+			<string>PSEditTextCell</string>
 			<key>default</key>
 			<string></string>
 			<key>defaults</key>
@@ -293,7 +329,9 @@
 			<key>key</key>
 			<string>viewTreeFocus</string>
 			<key>label</key>
-			<string>Focus class contains</string>
+			<string>Focus</string>
+			<key>placeholder</key>
+			<string>NowPlaying</string>
 		</dict>
 		<dict>
 			<key>cell</key>
