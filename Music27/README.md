@@ -20,6 +20,7 @@ Settings live under **Settings → Music27**.
 2. Scrolling down collapses into the merged red · mini · Search pill.
 3. Tap the **red button** to expand back to the 5-tab layout.
 4. Stock mini / tabs stay intact; glass pills float in a **passthrough bottom-strip window at `Normal + 2`** with no solid cover plate. The window must never be full-screen — see *Measured* under **Verify**.
+5. **Swipe the mini pill** left for next, right for previous. The pan lives on Music's own mini player so tap-to-open still passes through. Reasoned in 1.1.56; not yet on device.
 
 ## Planned next: full-bleed album artwork
 
@@ -150,63 +151,53 @@ safe_top = 94
 
 ## Planned next: swipe the mini pill to skip / go back
 
-Not started. Recorded here so it survives the conversation.
+**Shipped in 1.1.56. Reasoned, not yet verified on device.**
 
 **The change.** On iOS 26/27 the mini player is swipeable: drag it left for the
 next track, right for the previous one, and the artwork and titles slide with
 your finger rather than cutting. Wanted on **both** dock modes — the expanded
 mini pill and the collapsed centre capsule.
 
-**It is possible, and the plumbing is already here.** `M27NextTrack` sends
-MediaRemote command 4; previous is command 5 through the same
-`MRMediaRemoteSendCommand`, which is proven safe in-process (play/pause and skip
-already use it, and it is what replaced the `MPMusicPlayerController` call that
-crashed Music in 1.1.26).
+**Gesture delivery — option 1 of the three that were written down.** A
+recogniser on our pill would never fire: `pointInside:` returns `NO` over the
+artwork and titles so the touch reaches Music's masked mini player underneath
+and Music expands the full player natively (1.1.41, confirmed working in
+1.1.44). Taking the touch back would trade tap-to-open for swipe-to-skip.
 
-**The part that needs designing: a gesture on our pill would never fire.**
-The pill body deliberately declines touches — `pointInside:` returns `NO` over
-the artwork and titles so the touch reaches Music's masked mini player
-underneath and Music expands the full player natively (1.1.41, confirmed working
-in 1.1.44). A `UIGestureRecognizer` attached to a view that never receives
-touches never sees them, so the obvious implementation is dead on arrival, and
-simply taking the touch back would trade tap-to-open-the-player for
-swipe-to-skip. Those two must both work.
+So the pan is attached to **Music's own mini player**, the view the passthrough
+already targets and already un-masks for hit-testing, with `cancelsTouchesInView
+= NO`. Music's tap-to-expand is told to wait for that pan to fail, so a tap
+still opens the player and a horizontal pan does not. Install once, remove on
+teardown. A second pan lives on the dock itself for the sliver of pill that
+does not overlap the mini player (~5pt expanded, ~19pt collapsed).
 
-Three ways out, in preference order:
+Option 2 (pan on the strip window) was not built: `hitTest:` returning nil
+takes the overlay out of the recogniser walk, so that pan would never see the
+passthrough touches. Option 3 (split regions) was not built.
 
-1. **Attach the recogniser to Music's own mini player**, the view the
-   passthrough already targets and already un-masks for hit-testing, with
-   `cancelsTouchesInView = NO` and a delegate permitting simultaneous
-   recognition, so Music's own tap-to-expand still fires. This is a mutation of
-   a host view rather than a read, so it needs the usual care — install once,
-   remove on teardown, and confirm Music's own gestures still work.
-2. **Recognise on the dock but forward the touch**, using a
-   `UIPanGestureRecognizer` on the strip window with `cancelsTouchesInView =
-   NO`. Whether the touch is delivered at all still depends on `hitTest:`, so
-   this needs verifying before it is built on.
-3. **Split the regions** — swipe on the titles, passthrough on the artwork.
-   Least faithful to the reference and the least worth doing.
+**It is a carousel, not a crossfade.** Two content stacks translate together
+inside a clip that stops at the play/pause button. Commit at 35% of the clip
+width or a 480pt/s flick; otherwise snap back. Direction bias: horizontal must
+beat vertical by 1.35×, or a 52pt-tall capsule claims every touch that moves.
+Scroll-collapse still watches the collection view, not this pan.
 
-**Use a pan, not a swipe.** `UISwipeGestureRecognizer` gives a discrete flick
-with no feedback; the reference is interactive — the content tracks the finger
-and settles. That means a pan driving a translation on the pill's content, a
-threshold on release, and a snap-back when the threshold is not met.
+**What we cannot know.** MediaRemote's now-playing dictionary is the current
+track. The queue is behind `MPMusicPlayerController`, which crashes Music.
+Previous-track artwork comes from a ring of tracks this process has already
+seen (up to 8). Next-track incoming starts blank and fills if MediaRemote
+answers during the settle animation. That is a measured limit, not a guess —
+say so if the incoming side looks empty on a skip-forward.
 
-**It is a carousel, not a crossfade.** Four reference frames one second apart
-(iOS 26/27, 2:21 → 2:22) catch the transition mid-flight: *HISS · Megan Thee
-Stallion* slides out to the left, with only "…Stallion" still visible at the
-left edge, while *To Summer, From Cole · Summer Walker & J. Cole* enters from
-the right, clipped to "To Su… / Summ" and then "To Summer / Summer Wal" before
-it settles. The artwork moves with its own titles as one unit, and both tracks
-are on screen simultaneously, clipped by the pill. So the implementation is two
-content stacks translating together inside a clipping pill — not one stack
-whose text is swapped at the end of the gesture, which is what a naive version
-produces and which reads completely differently.
+**On-device checks that still have to happen (iPhone 12 mini / 17.3):**
 
-**Watch for:** a horizontal pan on the pill must not fight the scroll-collapse
-logic (which watches vertical scrolling), and the collapsed centre capsule is
-only ~52pt tall, so the recogniser needs a direction bias rather than claiming
-every touch that moves.
+- Tap on the pill still opens the full player in both dock modes.
+- Swipe left / right skips and goes back, and the stacks slide rather than cut.
+- A vertical drag on the pill does not collapse the dock and does not skip.
+- Play/pause and the expanded skip button still win over the pan.
+- Tearing the dock down (prefs off) removes the pan from Music's mini player.
+- `status.log` should show `swipe_installed`, then `swipe_begin` / `swipe_commit`
+  or `swipe_cancel`. A swipe with no `swipe_installed` means the mini player
+  was not found.
 
 ## Blank-screen history
 
@@ -237,7 +228,8 @@ every touch that moves.
 | **1.1.27** | Stray sixth tab: Music reports **6 view controllers but shows 5 tabs**, and the extra one rendered as "Tab 5". Dock indices are now mapped to the controllers that actually own a tab bar item |
 | **1.1.28** | Hides Music's own tab bar + mini player behind the dock. Worked — but hiding with `alpha` also made the mini player **un-hit-testable**, so the dock's Now Playing pill went dead |
 | **1.1.29** | Hides via `layer.opacity` instead of `alpha`. ~~`hitTest:` refuses any view with `alpha < 0.01`, so `alpha` was hiding the very thing it needed to find.~~ **Wrong — see 1.1.43.** `UIView.alpha` is backed by `CALayer.opacity`; they are the same property, so this changed nothing. The view stayed un-hit-testable for fourteen more versions |
-| **1.1.55** | **1.1.54 was wrong, and the log said so in one number.** 1.1.54 asserted there were two download controls — one in the nav bar, one in the header — and scoped `M27FindDownloadControl` to `vc.view` to keep them apart. On device: **`download=nil` on all 192 samples**, while `nav_download` resolved every time. There is no download button inside the album page on 17.3. Scoping the lookup to the page did not separate two controls, it discarded the only one — which is exactly why the glass button "does nothing" and the red one sat at the top permanently. Two consequences follow. **The 1.1.53 "regression" was not one:** the label match did change what the lookup returned, but from *nothing yet* to *the real control*, and the drop in `download=nil` counts was the fix appearing, not a fault. **And the nav button is not a spare:** ours mirrors and fires it, so restoring it while our row is up just puts the duplicate back, and iOS 27 shows only "•••" there anyway — it is now restored on `viewWillDisappear` alone. **The tap works because it stopped pretending the view was a control.** `MusicCoreUI.SymbolButton` is not a `UIControl`, so `sendActionsForControlEvents:` reached nothing; the row keeps the `UIBarButtonItem` and sends its own `target`/`action`, both public properties. **The hide is retried, not one-shot** — at `viewWillAppear` the item usually has no view yet, which is why 1.1.54's single attempt left `nav_download_opacity=1` in 191 of 192 samples — and it re-hides when Music swaps the item through Download → Downloading → Downloaded, handing the previous view back first |
+| **1.1.56** | **Swipe the mini pill to skip / go back.** A pan on Music's own mini player — the view the passthrough already delivers taps to — drives a two-stack carousel on both dock modes. Music's tap-to-expand waits for that pan to fail, so tap-to-open and swipe-to-skip can coexist. Previous incoming uses tracks this process has already seen; next incoming is blank until MediaRemote answers. Direction-biased so a 52pt capsule does not steal vertical scrolls. **Reasoned, not yet on device.** |
+| **1.1.55** | **1.1.54 was wrong, and the log said so in one number.** | 1.1.54 asserted there were two download controls — one in the nav bar, one in the header — and scoped `M27FindDownloadControl` to `vc.view` to keep them apart. On device: **`download=nil` on all 192 samples**, while `nav_download` resolved every time. There is no download button inside the album page on 17.3. Scoping the lookup to the page did not separate two controls, it discarded the only one — which is exactly why the glass button "does nothing" and the red one sat at the top permanently. Two consequences follow. **The 1.1.53 "regression" was not one:** the label match did change what the lookup returned, but from *nothing yet* to *the real control*, and the drop in `download=nil` counts was the fix appearing, not a fault. **And the nav button is not a spare:** ours mirrors and fires it, so restoring it while our row is up just puts the duplicate back, and iOS 27 shows only "•••" there anyway — it is now restored on `viewWillDisappear` alone. **The tap works because it stopped pretending the view was a control.** `MusicCoreUI.SymbolButton` is not a `UIControl`, so `sendActionsForControlEvents:` reached nothing; the row keeps the `UIBarButtonItem` and sends its own `target`/`action`, both public properties. **The hide is retried, not one-shot** — at `viewWillAppear` the item usually has no view yet, which is why 1.1.54's single attempt left `nav_download_opacity=1` in 191 of 192 samples — and it re-hides when Music swaps the item through Download → Downloading → Downloaded, handing the previous view back first |
 | **1.1.54** | **The flashing button was never the one being chased.** 1.1.53's `album_nav` named the nav bar's three right-hand items: `More` (SymbolButton 28×28, alpha 1.0), a `{0,1}` spacer, and **`Download` — a second `MusicCoreUI.SymbolButton`, also 28×28**. Two identical-looking controls on two different screens is exactly why every log until now was ambiguous. **The flash is a gate, not a delay.** `M27InstallAlbumControls` looks up play and shuffle first and returns early if either is missing — *before it ever reaches the download control* — and Music builds the header asynchronously, so for that whole window nothing has been hidden while the nav bar is painted from frame one. No amount of speeding the retry up can close a window that starts before the retry has anything to do, which is why 1.1.52 cut the header gap from 1.2s to 0.3s and the flash survived. The nav button is now hidden **before** the gate at `viewWillAppear`, and restored the moment the glass row installs — our row is a sibling of the header row and scrolls away with it, so leaving the nav button hidden would take away the only download control a scrolled page has. Also restored unconditionally on `viewWillDisappear`, prefs check or not. **And a self-inflicted regression, caught by the numbers:** 1.1.53's new accessibility-label match made the nav-bar loop in `M27FindDownloadControl` hit for the first time, so `download=nil` went from 52 occurrences in the 1.1.52 half of the log to **zero** in the 1.1.53 half. Nothing had got faster — the lookup had quietly started returning the nav control instead of the header's, so the header's own button stopped being what we hid and mirrored. That function is scoped to `vc.view` now and cannot wander into the nav bar; `album_controls` reports `nav_download` and its opacity separately so the two can never be confused again |
 | **1.1.53** | **The header download control is fixed; the flash that is left is a different button.** 1.1.52 is confirmed by measurement, not impression — the gap between `download=nil` and the control being found and hidden went from **avg 1.2s / max 7s** across 8 album opens to **avg 0.3s / max 1s** across 9, at one-second log granularity. But the flash persists, which places it on the **navigation bar** button, and that lives outside `vc.view` where nothing in this file has ever looked. 1.1.52's `nav_right` could only say `UIBarButtonItem/-/noimg` three times: no accessibility label, no `image`, so the glyph is drawn by a view *inside* the item. This build looks one level in — `customView` or the item's own backing view, its class, frame, alpha, hidden flag, and its first three children — and **samples twice, at 0.05s and 1.5s**, because one sample cannot show a flash and two either side of the header build show whether an item goes away on its own and which one it was. **Also removes a matcher that was wrong by construction:** the nav-bar download search returned *any* right-hand item containing a `UIImageView` or `UIButton`, which on this page is the "•••" more-menu — it would have hidden it. All 74 `album_controls` samples in the 1.1.52 log resolve download via the header search instead, so it has never fired; unreached is not the same as correct, and this project has already spent three builds on that exact species of matcher |
 | **1.1.52** | **"Success" was declared before the download control existed.** The 1.1.51 log gives the remaining flash a measurable cause — every album open reads the same way, one second apart: `18:44:00 album_controls download=nil download_hidden=nil` then `18:44:01 album_controls download=Symbol download_hidden=yes`. Play and shuffle are in the header the moment it builds; the download control arrives about a second later. `M27InstallAlbumControls` returned YES as soon as the row was placed, which told the 1.1.47 retry timer its job was done — so nothing was watching for the control that had not turned up yet, and Music's own red one sat uncovered underneath for that second. Success now means the download control was found too. The row is still placed on the same pass either way; only the answer to "is there anything left to wait for" changes, and an album with genuinely no download control simply costs the retry its ~2s cap. **The other red button** — the one that "flashes at the top and then comes down" — is in the navigation bar, which is not inside `vc.view`, so nothing in this file has ever seen it. `album_controls` now names the nav bar's right-hand items instead of hiding a control that has not been identified |

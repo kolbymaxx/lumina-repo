@@ -19,6 +19,13 @@ typedef NS_ENUM(NSInteger, M27DockMode) {
 @optional
 - (void)floatingDockDidTapNext:(M27FloatingDock *)dock;
 - (void)floatingDockDidChangeMode:(M27FloatingDock *)dock;
+/// Horizontal swipe-to-skip. `direction` is +1 previous (drag right) or
+/// -1 next (drag left). Incoming keys: `title`, `artist`, `artwork` (UIImage).
+- (BOOL)floatingDockShouldAllowSwipe:(M27FloatingDock *)dock;
+- (nullable NSDictionary *)floatingDock:(M27FloatingDock *)dock
+            incomingTrackForDirection:(NSInteger)direction;
+- (void)floatingDock:(M27FloatingDock *)dock didCommitSwipeWithDirection:(NSInteger)direction;
+- (void)floatingDockDidCancelSwipe:(M27FloatingDock *)dock;
 - (NSInteger)numberOfTabsForFloatingDock:(M27FloatingDock *)dock;
 - (nullable UIImage *)floatingDock:(M27FloatingDock *)dock iconForTabIndex:(NSInteger)index selected:(BOOL)selected;
 - (nullable NSString *)floatingDock:(M27FloatingDock *)dock titleForTabIndex:(NSInteger)index;
@@ -59,6 +66,14 @@ typedef NS_ENUM(NSInteger, M27DockMode) {
 - (void)refreshChrome;
 - (void)collapseFromScroll;
 - (void)expandFromRedButton;
+
+/// Pan attached to Music's own mini player — the view the passthrough already
+/// delivers touches to. Same state machine as the dock's own pan, so a swipe
+/// that starts on either side of the window boundary still drives the carousel.
+- (void)handleExternalSwipePan:(UIPanGestureRecognizer *)pan;
+/// Direction bias shared with the mini-player pan: horizontal must dominate
+/// or a 52pt-tall capsule claims every touch that moves.
++ (BOOL)panGestureIsHorizontalSwipe:(UIPanGestureRecognizer *)pan;
 
 @end
 

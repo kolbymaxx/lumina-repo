@@ -217,6 +217,15 @@ static void M27NextTrack(void) {
     M27WriteStatus(@"next_no_mediaremote", @{});
 }
 
+static void M27PreviousTrack(void) {
+    M27MRSendCommandFunc send = M27MRSendCommand();
+    if (send) {
+        send(5, NULL);
+        return;
+    }
+    M27WriteStatus(@"prev_no_mediaremote", @{});
+}
+
 #pragma mark - Dock controller bridge
 
 @class M27DockController;
@@ -229,9 +238,12 @@ static UIViewController *M27FindMiniPlayerViewController(UITabBarController *tbc
 static void M27MaskOutView(UIView *view);
 static void M27UnmaskView(UIView *view);
 
-@interface M27DockController : NSObject <M27FloatingDockDelegate>
+@interface M27DockController : NSObject <M27FloatingDockDelegate, UIGestureRecognizerDelegate>
 @property (nonatomic, weak) UITabBarController *tabBarController;
 @property (nonatomic, weak) M27FloatingDock *dock;
+@property (nonatomic, strong) UIPanGestureRecognizer *miniSwipePan;
+@property (nonatomic, weak) UIView *miniSwipeHost;
+@property (nonatomic, strong) NSMutableArray<NSDictionary *> *trackHistory;
 /// Real viewControllers indices that actually own a tab — Music 17 has one more
 /// controller than tabs, so dock index N is not viewControllers[N].
 - (NSArray<NSNumber *> *)visibleTabIndexes;
@@ -239,6 +251,8 @@ static void M27UnmaskView(UIView *view);
 - (void)syncSelection;
 - (void)syncNowPlaying;
 - (void)beginObservingNowPlaying;
+- (void)installMiniSwipeIfNeeded;
+- (void)removeMiniSwipe;
 @end
 
 @implementation M27DockController
@@ -350,6 +364,152 @@ static void M27UnmaskView(UIView *view);
 - (void)floatingDockDidTapNext:(M27FloatingDock *)dock {
     (void)dock;
     M27NextTrack();
+}
+
+- (BOOL)floatingDockShouldAllowSwipe:(M27FloatingDock *)dock {
+    (void)dock;
+    if (gM27FullPlayerUp) return NO;
+    if (!self.dock.hasTrack) return NO;
+    return YES;
+}
+
+- (NSDictionary *)previousTrackFromHistory {
+    NSString *current = self.dock.trackTitle ?: @"";
+    NSInteger found = -1;
+    for (NSInteger i = (NSInteger)self.trackHistory.count - 1; i >= 0; i--) {
+        id title = self.trackHistory[(NSUInteger)i][@"title"];
+        if ([title isKindOfClass:NSString.class] && [title isEqualToString:current]) {
+            found = i;
+            break;
+        }
+    }
+    if (found < 0) return self.trackHistory.lastObject;
+    if (found == 0) return nil;
+    return self.trackHistory[(NSUInteger)(found - 1)];
+}
+
+- (NSDictionary *)floatingDock:(M27FloatingDock *)dock incomingTrackForDirection:(NSInteger)direction {
+    (void)dock;
+    // Next track is not in MediaRemote's now-playing dictionary, and
+    // MPMusicPlayerController is an IPC client that crashes Music. Previous
+    // is whatever this process has already seen.
+    if (direction > 0) return [self previousTrackFromHistory];
+    return nil;
+}
+
+- (void)floatingDock:(M27FloatingDock *)dock didCommitSwipeWithDirection:(NSInteger)direction {
+    (void)dock;
+    if (direction < 0) {
+        M27NextTrack();
+        M27WriteStatus(@"swipe_commit", @{ @"dir": @"next" });
+        return;
+    }
+    M27PreviousTrack();
+    M27WriteStatus(@"swipe_commit", @{ @"dir": @"prev" });
+}
+
+- (void)floatingDockDidCancelSwipe:(M27FloatingDock *)dock {
+    (void)dock;
+    M27WriteStatus(@"swipe_cancel", @{});
+}
+
+- (void)recordTrackTitle:(NSString *)title artist:(NSString *)artist artwork:(UIImage *)artwork {
+    if (!title.length) return;
+    if (!self.trackHistory) self.trackHistory = [NSMutableArray array];
+    NSDictionary *last = self.trackHistory.lastObject;
+    id rawLastTitle = last[@"title"];
+    id rawLastArtist = last[@"artist"];
+    NSString *lastTitle = [rawLastTitle isKindOfClass:NSString.class] ? (NSString *)rawLastTitle : @"";
+    NSString *lastArtist = [rawLastArtist isKindOfClass:NSString.class] ? (NSString *)rawLastArtist : @"";
+    NSString *artistKey = artist ?: @"";
+    if ([lastTitle isEqualToString:title] && [lastArtist isEqualToString:artistKey]) return;
+    NSMutableDictionary *entry = [NSMutableDictionary dictionary];
+    entry[@"title"] = title;
+    if (artist.length) entry[@"artist"] = artist;
+    if (artwork) entry[@"artwork"] = artwork;
+    [self.trackHistory addObject:entry];
+    while (self.trackHistory.count > 8) {
+        [self.trackHistory removeObjectAtIndex:0];
+    }
+}
+
+- (void)miniSwipePan:(UIPanGestureRecognizer *)pan {
+    [self.dock handleExternalSwipePan:pan];
+}
+
+- (void)installMiniSwipeIfNeeded {
+    UIViewController *miniVC = M27FindMiniPlayerViewController(self.tabBarController);
+    UIView *mini = miniVC.isViewLoaded ? miniVC.view : nil;
+    if (!mini) return;
+    if (self.miniSwipePan && self.miniSwipeHost == mini &&
+        [mini.gestureRecognizers containsObject:self.miniSwipePan]) {
+        return;
+    }
+    [self removeMiniSwipe];
+
+    UIPanGestureRecognizer *pan =
+        [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(miniSwipePan:)];
+    pan.cancelsTouchesInView = NO;
+    pan.delaysTouchesBegan = NO;
+    pan.delaysTouchesEnded = NO;
+    pan.delegate = self;
+    [mini addGestureRecognizer:pan];
+    self.miniSwipePan = pan;
+    self.miniSwipeHost = mini;
+
+    // Music's tap-to-expand must wait for our pan to fail, or a skip also
+    // opens the full player when the finger lifts.
+    UIView *node = mini;
+    for (NSInteger i = 0; node && i <= 3; i++, node = node.superview) {
+        for (UIGestureRecognizer *gr in node.gestureRecognizers) {
+            if (gr == pan) continue;
+            if ([gr isKindOfClass:UITapGestureRecognizer.class]) {
+                [gr requireGestureRecognizerToFail:pan];
+            }
+        }
+    }
+    M27WriteStatus(@"swipe_installed", @{
+        @"mini": @(object_getClassName(mini)),
+    });
+}
+
+- (void)removeMiniSwipe {
+    UIPanGestureRecognizer *pan = self.miniSwipePan;
+    UIView *host = self.miniSwipeHost;
+    if (pan && host) {
+        [host removeGestureRecognizer:pan];
+    } else if (pan.view) {
+        [pan.view removeGestureRecognizer:pan];
+    }
+    if (pan) {
+        M27WriteStatus(@"swipe_removed", @{});
+    }
+    self.miniSwipePan = nil;
+    self.miniSwipeHost = nil;
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gr {
+    if (gr != self.miniSwipePan) return YES;
+    if (![gr isKindOfClass:UIPanGestureRecognizer.class]) return NO;
+    if (![self floatingDockShouldAllowSwipe:self.dock]) return NO;
+    return [M27FloatingDock panGestureIsHorizontalSwipe:(UIPanGestureRecognizer *)gr];
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gr
+shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    if (gr != self.miniSwipePan) return NO;
+    if ([other isKindOfClass:UITapGestureRecognizer.class]) return YES;
+    return NO;
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gr shouldReceiveTouch:(UITouch *)touch {
+    if (gr != self.miniSwipePan) return YES;
+    UIView *view = touch.view;
+    while (view) {
+        if ([view isKindOfClass:UIButton.class]) return NO;
+        view = view.superview;
+    }
+    return YES;
 }
 
 /// First UIControl anywhere under `view`, breadth-first, depth-capped.
@@ -731,10 +891,11 @@ static NSDictionary *M27LoadLastTrack(void) {
         if (title.length) self.dock.trackTitle = title;
         if (artist.length) self.dock.artistName = artist;
 
+        UIImage *image = nil;
         @try {
             NSData *art = info[kM27MRArtworkData];
             if ([art isKindOfClass:NSData.class] && art.length) {
-                UIImage *image = [UIImage imageWithData:art];
+                image = [UIImage imageWithData:art];
                 if (image) self.dock.artwork = image;
             }
         } @catch (__unused NSException *ex) {}
@@ -744,7 +905,11 @@ static NSDictionary *M27LoadLastTrack(void) {
                           ? ([rate doubleValue] > 0.01) : NO;
         if (title.length) {
             self.dock.hasTrack = YES;
-            M27SaveLastTrack(title, artist, self.dock.artwork);
+            // Prefer the image we just decoded. During a committed swipe
+            // `dock.artwork` still holds the outgoing track.
+            UIImage *artForSave = image ?: self.dock.artwork;
+            M27SaveLastTrack(title, artist, artForSave);
+            [self recordTrackTitle:title artist:artist artwork:artForSave];
         }
         M27WriteStatus(@"sync_applied", @{
             @"src": @"mediaremote",
@@ -781,6 +946,7 @@ static NSDictionary *M27LoadLastTrack(void) {
             if (image) self.dock.artwork = image;
             self.dock.hasTrack = YES;
             M27SaveLastTrack(texts[0], texts[1], image);
+            [self recordTrackTitle:texts[0] artist:texts[1] artwork:image];
         }
         // Whatever is shown, nothing is actually playing on this path.
         self.dock.playing = NO;
@@ -814,6 +980,9 @@ static NSDictionary *M27LoadLastTrack(void) {
             }
             self.dock.playing = NO;
             self.dock.hasTrack = YES;
+            [self recordTrackTitle:(NSString *)lastTitle
+                            artist:self.dock.artistName
+                           artwork:self.dock.artwork];
             M27WriteStatus(@"sync_last_track", @{ @"title": lastTitle });
         }
     }
@@ -1286,6 +1455,7 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
               NSStringFromCGRect(stripFrame), y, height, safeBottom,
               floatGap, overlay.windowLevel, (int)overlay.hidden);
         M27HideStockChromeForDock(tbc);
+        [M27ControllerForTabBarController(tbc) installMiniSwipeIfNeeded];
         M27WriteStatus(@"layout", @{
             @"strip": NSStringFromCGRect(stripFrame),
             @"screen": NSStringFromCGSize(CGSizeMake(screenW, screenH)),
@@ -1301,6 +1471,8 @@ static void M27LayoutDock(UITabBarController *tbc, M27FloatingDock *dock) {
 
 static void M27RemoveDock(UITabBarController *tbc) {
     M27FloatingDock *dock = M27DockForTabBarController(tbc);
+    M27DockController *controller = objc_getAssociatedObject(tbc, kM27DockControllerKey);
+    [controller removeMiniSwipe];
     // Logged because "installed, then silently torn down" and "never installed"
     // look identical from outside, and we cannot yet tell them apart.
     M27WriteStatus(@"remove_dock", @{ @"had_dock": dock ? @"yes" : @"no" });

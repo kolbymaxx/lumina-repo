@@ -13,7 +13,7 @@ static const CGFloat kM27ExpandedTabHeight = 58.0;
 static const CGFloat kM27ExpandedGap = 8.0;
 static const CGFloat kM27CircleButton = 44.0;
 
-@interface M27FloatingDock ()
+@interface M27FloatingDock () <UIGestureRecognizerDelegate>
 /// Collapsed is THREE separate capsules, matching iOS 27: the tab affordance in
 /// its own rounded square, the now-playing pill, and Search in a circle.
 @property (nonatomic, strong) UIView *collapsedLeadingHost;
@@ -23,22 +23,43 @@ static const CGFloat kM27CircleButton = 44.0;
 @property (nonatomic, strong) UIView *collapsedHost;
 @property (nonatomic, strong) UIVisualEffectView *collapsedGlass;
 @property (nonatomic, strong) UIButton *redButton;
+@property (nonatomic, strong) UIView *collapsedClip;
+@property (nonatomic, strong) UIView *collapsedCurrentStack;
+@property (nonatomic, strong) UIView *collapsedIncomingStack;
 @property (nonatomic, strong) UIImageView *collapsedArt;
 @property (nonatomic, strong) UILabel *collapsedTitle;
 @property (nonatomic, strong) UILabel *collapsedArtist;
+@property (nonatomic, strong) UIImageView *collapsedIncomingArt;
+@property (nonatomic, strong) UILabel *collapsedIncomingTitle;
+@property (nonatomic, strong) UILabel *collapsedIncomingArtist;
 @property (nonatomic, strong) UIButton *collapsedPlayPause;
 @property (nonatomic, strong) UIButton *searchButton;
 
 @property (nonatomic, strong) UIView *expandedHost;
 @property (nonatomic, strong) UIVisualEffectView *miniGlass;
+@property (nonatomic, strong) UIView *expandedClip;
+@property (nonatomic, strong) UIView *expandedCurrentStack;
+@property (nonatomic, strong) UIView *expandedIncomingStack;
 @property (nonatomic, strong) UIImageView *expandedArt;
 @property (nonatomic, strong) UILabel *expandedTitle;
 @property (nonatomic, strong) UILabel *expandedArtist;
+@property (nonatomic, strong) UIImageView *expandedIncomingArt;
+@property (nonatomic, strong) UILabel *expandedIncomingTitle;
+@property (nonatomic, strong) UILabel *expandedIncomingArtist;
 @property (nonatomic, strong) UIButton *expandedPlayPause;
 @property (nonatomic, strong) UIButton *expandedNext;
 @property (nonatomic, strong) UIVisualEffectView *tabsGlass;
 @property (nonatomic, strong) UIStackView *tabsStack;
 @property (nonatomic, strong) NSMutableArray<UIButton *> *tabButtons;
+
+@property (nonatomic, strong) UIPanGestureRecognizer *swipePan;
+@property (nonatomic, assign) CGFloat swipeOffset;
+@property (nonatomic, assign) NSInteger swipeDirection;
+@property (nonatomic, assign) BOOL swipeActive;
+@property (nonatomic, assign) BOOL swipeCommitted;
+@property (nonatomic, copy, nullable) NSString *incomingTitle;
+@property (nonatomic, copy, nullable) NSString *incomingArtist;
+@property (nonatomic, strong, nullable) UIImage *incomingArtwork;
 @end
 
 @implementation M27FloatingDock
@@ -52,6 +73,7 @@ static const CGFloat kM27CircleButton = 44.0;
         _tabButtons = [NSMutableArray array];
         [self buildCollapsed];
         [self buildExpanded];
+        [self installDockSwipePan];
         [self applyModeAnimated:NO];
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(themeChanged:)
@@ -99,6 +121,100 @@ static const CGFloat kM27CircleButton = 44.0;
     return button;
 }
 
+/// Artwork + title + artist as one translating unit. The play/pause and skip
+/// buttons stay outside the clip so they do not slide with the carousel.
+- (UIView *)m27BuildTrackStackArt:(UIImageView **)artOut
+                            title:(UILabel **)titleOut
+                           artist:(UILabel **)artistOut {
+    UIView *stack = [[UIView alloc] initWithFrame:CGRectZero];
+    stack.userInteractionEnabled = NO;
+    stack.clipsToBounds = YES;
+    stack.backgroundColor = UIColor.clearColor;
+
+    UIImageView *art = [UIImageView new];
+    art.contentMode = UIViewContentModeScaleAspectFill;
+    art.clipsToBounds = YES;
+    art.layer.cornerRadius = 8.0;
+    if (@available(iOS 13.0, *)) {
+        art.layer.cornerCurve = kCACornerCurveContinuous;
+    }
+    art.backgroundColor = [UIColor colorWithWhite:0.5 alpha:0.25];
+    art.userInteractionEnabled = NO;
+    [stack addSubview:art];
+
+    UILabel *title = [UILabel new];
+    title.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    title.textColor = UIColor.labelColor;
+    title.lineBreakMode = NSLineBreakByTruncatingTail;
+    title.userInteractionEnabled = NO;
+    [stack addSubview:title];
+
+    UILabel *artist = [UILabel new];
+    artist.font = [UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
+    artist.textColor = UIColor.secondaryLabelColor;
+    artist.lineBreakMode = NSLineBreakByTruncatingTail;
+    artist.userInteractionEnabled = NO;
+    [stack addSubview:artist];
+
+    if (artOut) *artOut = art;
+    if (titleOut) *titleOut = title;
+    if (artistOut) *artistOut = artist;
+    return stack;
+}
+
+- (void)m27LayoutTrackStack:(UIView *)stack
+                        art:(UIImageView *)art
+                      title:(UILabel *)title
+                     artist:(UILabel *)artist
+                    artSize:(CGFloat)artSize
+                     height:(CGFloat)height
+                    titleY0:(CGFloat)titleY0 {
+    CGFloat width = CGRectGetWidth(stack.bounds);
+    CGFloat artY = (height - artSize) / 2.0;
+    art.frame = CGRectMake(0, artY, artSize, artSize);
+    CGFloat textX = artSize + 8.0;
+    CGFloat textW = MAX(0, width - textX);
+    title.frame = CGRectMake(textX, artY + titleY0, textW, 16.0);
+    artist.frame = CGRectMake(textX, artY + titleY0 + 17.0, textW, 14.0);
+}
+
+- (void)m27ApplyIncomingTitle:(NSString *)title
+                       artist:(NSString *)artist
+                      artwork:(UIImage *)artwork {
+    self.incomingTitle = title;
+    self.incomingArtist = artist;
+    self.incomingArtwork = artwork;
+    self.collapsedIncomingTitle.text = title ?: @"";
+    self.expandedIncomingTitle.text = title ?: @"";
+    self.collapsedIncomingArtist.text = artist ?: @"";
+    self.expandedIncomingArtist.text = artist ?: @"";
+    self.collapsedIncomingArt.image = artwork;
+    self.expandedIncomingArt.image = artwork;
+}
+
+- (void)m27ClearIncoming {
+    [self m27ApplyIncomingTitle:nil artist:nil artwork:nil];
+}
+
+- (void)m27AskDelegateForIncoming:(NSInteger)direction {
+    if (direction == 0) return;
+    if (![self.delegate respondsToSelector:@selector(floatingDock:incomingTrackForDirection:)]) {
+        [self m27ClearIncoming];
+        return;
+    }
+    NSDictionary *incoming = [self.delegate floatingDock:self incomingTrackForDirection:direction];
+    NSString *title = nil;
+    NSString *artist = nil;
+    UIImage *artwork = nil;
+    id rawTitle = incoming[@"title"];
+    if ([rawTitle isKindOfClass:NSString.class]) title = (NSString *)rawTitle;
+    id rawArtist = incoming[@"artist"];
+    if ([rawArtist isKindOfClass:NSString.class]) artist = (NSString *)rawArtist;
+    id rawArt = incoming[@"artwork"];
+    if ([rawArt isKindOfClass:UIImage.class]) artwork = (UIImage *)rawArt;
+    [self m27ApplyIncomingTitle:title artist:artist artwork:artwork];
+}
+
 - (void)buildCollapsed {
     // Leading capsule: the tab affordance on its own.
     _collapsedLeadingHost = [[UIView alloc] initWithFrame:CGRectZero];
@@ -130,33 +246,24 @@ static const CGFloat kM27CircleButton = 44.0;
     _collapsedGlass = [M27GlassChrome pillWithCornerRadius:kM27CollapsedPill / 2.0];
     [_collapsedHost addSubview:_collapsedGlass];
 
-    _collapsedArt = [UIImageView new];
-    _collapsedArt.contentMode = UIViewContentModeScaleAspectFill;
-    _collapsedArt.clipsToBounds = YES;
-    _collapsedArt.layer.cornerRadius = 8.0;
-    if (@available(iOS 13.0, *)) {
-        _collapsedArt.layer.cornerCurve = kCACornerCurveContinuous;
-    }
-    _collapsedArt.backgroundColor = [UIColor colorWithWhite:0.5 alpha:0.25];
-    // No tap gesture here. The pill's own hit-testing decides between keeping
-    // the touch and declining it to Music (see pointInside:), and a gesture on
-    // the artwork would swallow it before that choice is ever made.
-    _collapsedArt.userInteractionEnabled = NO;
-    [_collapsedGlass.contentView addSubview:_collapsedArt];
+    // Clip is the art+titles band only. Play/pause stays a sibling so it does
+    // not translate with the carousel, and incoming artwork cannot slide over it.
+    _collapsedClip = [[UIView alloc] initWithFrame:CGRectZero];
+    _collapsedClip.clipsToBounds = YES;
+    _collapsedClip.userInteractionEnabled = NO;
+    _collapsedClip.backgroundColor = UIColor.clearColor;
+    [_collapsedGlass.contentView addSubview:_collapsedClip];
 
-    _collapsedTitle = [UILabel new];
-    _collapsedTitle.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-    _collapsedTitle.textColor = UIColor.labelColor;
-    _collapsedTitle.lineBreakMode = NSLineBreakByTruncatingTail;
-    _collapsedTitle.userInteractionEnabled = NO;
-    [_collapsedGlass.contentView addSubview:_collapsedTitle];
+    _collapsedCurrentStack = [self m27BuildTrackStackArt:&_collapsedArt
+                                                   title:&_collapsedTitle
+                                                  artist:&_collapsedArtist];
+    [_collapsedClip addSubview:_collapsedCurrentStack];
 
-    _collapsedArtist = [UILabel new];
-    _collapsedArtist.font = [UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
-    _collapsedArtist.textColor = UIColor.secondaryLabelColor;
-    _collapsedArtist.lineBreakMode = NSLineBreakByTruncatingTail;
-    _collapsedArtist.userInteractionEnabled = NO;
-    [_collapsedGlass.contentView addSubview:_collapsedArtist];
+    _collapsedIncomingStack = [self m27BuildTrackStackArt:&_collapsedIncomingArt
+                                                    title:&_collapsedIncomingTitle
+                                                   artist:&_collapsedIncomingArtist];
+    _collapsedIncomingStack.hidden = YES;
+    [_collapsedClip addSubview:_collapsedIncomingStack];
 
     _collapsedPlayPause = [self circleIconButtonWithSystemName:@"pause.fill"
                                                           tint:UIColor.labelColor
@@ -197,40 +304,29 @@ static const CGFloat kM27CircleButton = 44.0;
     // meaning the delegate was never reached. The play/pause and next buttons
     // are UIControl subviews, so they still win the hit test over this.
     miniHost.userInteractionEnabled = YES;
-    [miniHost addGestureRecognizer:
-        [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(nowPlayingTapped)]];
+    UITapGestureRecognizer *miniTap =
+        [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(nowPlayingTapped)];
+    [miniHost addGestureRecognizer:miniTap];
     [M27GlassChrome addSoftShadowToHost:miniHost];
     [miniHost addSubview:_miniGlass];
     [_expandedHost addSubview:miniHost];
 
-    _expandedArt = [UIImageView new];
-    _expandedArt.contentMode = UIViewContentModeScaleAspectFill;
-    _expandedArt.clipsToBounds = YES;
-    _expandedArt.layer.cornerRadius = 8.0;
-    if (@available(iOS 13.0, *)) {
-        _expandedArt.layer.cornerCurve = kCACornerCurveContinuous;
-    }
-    _expandedArt.backgroundColor = [UIColor colorWithWhite:0.5 alpha:0.25];
-    _expandedArt.userInteractionEnabled = YES;
-    [_expandedArt addGestureRecognizer:
-        [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(nowPlayingTapped)]];
-    [_miniGlass.contentView addSubview:_expandedArt];
+    _expandedClip = [[UIView alloc] initWithFrame:CGRectZero];
+    _expandedClip.clipsToBounds = YES;
+    _expandedClip.userInteractionEnabled = NO;
+    _expandedClip.backgroundColor = UIColor.clearColor;
+    [_miniGlass.contentView addSubview:_expandedClip];
 
-    _expandedTitle = [UILabel new];
-    _expandedTitle.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-    _expandedTitle.textColor = UIColor.labelColor;
-    _expandedTitle.lineBreakMode = NSLineBreakByTruncatingTail;
-    _expandedTitle.userInteractionEnabled = YES;
-    [_expandedTitle addGestureRecognizer:
-        [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(nowPlayingTapped)]];
-    [_miniGlass.contentView addSubview:_expandedTitle];
+    _expandedCurrentStack = [self m27BuildTrackStackArt:&_expandedArt
+                                                  title:&_expandedTitle
+                                                 artist:&_expandedArtist];
+    [_expandedClip addSubview:_expandedCurrentStack];
 
-    _expandedArtist = [UILabel new];
-    _expandedArtist.font = [UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
-    _expandedArtist.textColor = UIColor.secondaryLabelColor;
-    _expandedArtist.lineBreakMode = NSLineBreakByTruncatingTail;
-    _expandedArtist.userInteractionEnabled = NO; // falls through to miniHost
-    [_miniGlass.contentView addSubview:_expandedArtist];
+    _expandedIncomingStack = [self m27BuildTrackStackArt:&_expandedIncomingArt
+                                                   title:&_expandedIncomingTitle
+                                                  artist:&_expandedIncomingArtist];
+    _expandedIncomingStack.hidden = YES;
+    [_expandedClip addSubview:_expandedIncomingStack];
 
     _expandedPlayPause = [self circleIconButtonWithSystemName:@"pause.fill"
                                                          tint:UIColor.labelColor
@@ -318,6 +414,15 @@ static const CGFloat kM27CircleButton = 44.0;
 
 - (void)setArtwork:(UIImage *)artwork {
     _artwork = artwork;
+    // After a committed swipe the new track arrives on the incoming stack so
+    // the one sliding out keeps the old art. Before commit, MediaRemote progress
+    // updates still belong on the current stack.
+    if (self.swipeCommitted) {
+        self.incomingArtwork = artwork;
+        self.collapsedIncomingArt.image = artwork;
+        self.expandedIncomingArt.image = artwork;
+        return;
+    }
     self.collapsedArt.image = artwork;
     self.expandedArt.image = artwork;
 }
@@ -327,6 +432,12 @@ static const CGFloat kM27CircleButton = 44.0;
     // No "Not Playing" fallback any more. When nothing is playing the pill is
     // removed entirely (see setHasTrack:), so a placeholder string here would
     // only ever be visible for the frame before that happens.
+    if (self.swipeCommitted) {
+        self.incomingTitle = _trackTitle;
+        self.collapsedIncomingTitle.text = _trackTitle ?: @"";
+        self.expandedIncomingTitle.text = _trackTitle ?: @"";
+        return;
+    }
     self.collapsedTitle.text = trackTitle ?: @"";
     self.expandedTitle.text = trackTitle ?: @"";
 }
@@ -352,6 +463,12 @@ static const CGFloat kM27CircleButton = 44.0;
 
 - (void)setArtistName:(NSString *)artistName {
     _artistName = [artistName copy];
+    if (self.swipeCommitted) {
+        self.incomingArtist = _artistName;
+        self.collapsedIncomingArtist.text = _artistName ?: @"";
+        self.expandedIncomingArtist.text = _artistName ?: @"";
+        return;
+    }
     self.collapsedArtist.text = artistName ?: @"";
     self.expandedArtist.text = artistName ?: @"";
 }
@@ -497,17 +614,24 @@ static const CGFloat kM27CircleButton = 44.0;
 
     CGFloat pad = 8.0;
     CGFloat art = 40.0;
-    CGFloat artY = (pillH - art) / 2.0;
-    self.collapsedArt.frame = CGRectMake(pad, artY, art, art);
-
     CGFloat playW = 36.0;
     CGFloat playX = MAX(0, centreW - pad - playW);
     self.collapsedPlayPause.frame = CGRectMake(playX, (pillH - playW) / 2.0, playW, playW);
 
-    CGFloat textX = CGRectGetMaxX(self.collapsedArt.frame) + 9.0;
-    CGFloat textW = MAX(0, playX - 6.0 - textX);
-    self.collapsedTitle.frame = CGRectMake(textX, artY + 3.0, textW, 16.0);
-    self.collapsedArtist.frame = CGRectMake(textX, artY + 20.0, textW, 14.0);
+    CGFloat clipW = MAX(0, playX - 6.0 - pad);
+    self.collapsedClip.frame = CGRectMake(pad, 0, clipW, pillH);
+    [self m27LayoutCarouselInClip:self.collapsedClip
+                    currentStack:self.collapsedCurrentStack
+                   incomingStack:self.collapsedIncomingStack
+                             art:self.collapsedArt
+                           title:self.collapsedTitle
+                          artist:self.collapsedArtist
+                    incomingArt:self.collapsedIncomingArt
+                  incomingTitle:self.collapsedIncomingTitle
+                 incomingArtist:self.collapsedIncomingArtist
+                        artSize:art
+                         height:pillH
+                        titleY0:3.0];
 
     // Expanded
     CGFloat expandedH = self.preferredHeight;
@@ -535,18 +659,26 @@ static const CGFloat kM27CircleButton = 44.0;
 
     CGFloat eArt = 36.0;
     CGFloat ePad = 10.0;
-    CGFloat eArtY = (kM27ExpandedMiniHeight - eArt) / 2.0;
-    self.expandedArt.frame = CGRectMake(ePad, eArtY, eArt, eArt);
     CGFloat eBtn = 34.0;
     CGFloat nextX = CGRectGetWidth(self.miniGlass.bounds) - ePad - eBtn;
     self.expandedNext.frame =
         CGRectMake(nextX, (kM27ExpandedMiniHeight - eBtn) / 2.0, eBtn, eBtn);
     self.expandedPlayPause.frame =
         CGRectMake(nextX - eBtn - 2.0, (kM27ExpandedMiniHeight - eBtn) / 2.0, eBtn, eBtn);
-    CGFloat eTextX = CGRectGetMaxX(self.expandedArt.frame) + 8.0;
-    CGFloat eTextW = MAX(0, CGRectGetMinX(self.expandedPlayPause.frame) - 8.0 - eTextX);
-    self.expandedTitle.frame = CGRectMake(eTextX, eArtY + 1.0, eTextW, 16.0);
-    self.expandedArtist.frame = CGRectMake(eTextX, eArtY + 18.0, eTextW, 14.0);
+    CGFloat clipW = MAX(0, CGRectGetMinX(self.expandedPlayPause.frame) - 8.0 - ePad);
+    self.expandedClip.frame = CGRectMake(ePad, 0, clipW, kM27ExpandedMiniHeight);
+    [self m27LayoutCarouselInClip:self.expandedClip
+                    currentStack:self.expandedCurrentStack
+                   incomingStack:self.expandedIncomingStack
+                             art:self.expandedArt
+                           title:self.expandedTitle
+                          artist:self.expandedArtist
+                    incomingArt:self.expandedIncomingArt
+                  incomingTitle:self.expandedIncomingTitle
+                 incomingArtist:self.expandedIncomingArtist
+                        artSize:eArt
+                         height:kM27ExpandedMiniHeight
+                        titleY0:1.0];
 }
 
 - (void)applyModeAnimated:(BOOL)animated {
@@ -652,6 +784,266 @@ static const CGFloat kM27CircleButton = 44.0;
 - (void)themeChanged:(NSNotification *)note {
     (void)note;
     [self refreshChrome];
+}
+
+#pragma mark - Swipe carousel
+
+static const CGFloat kM27SwipeCommitFraction = 0.35;
+static const CGFloat kM27SwipeCommitVelocity = 480.0;
+
++ (BOOL)panGestureIsHorizontalSwipe:(UIPanGestureRecognizer *)pan {
+    if (![pan isKindOfClass:UIPanGestureRecognizer.class]) return NO;
+    UIView *view = pan.view;
+    if (!view) return NO;
+    CGPoint translation = [pan translationInView:view];
+    CGPoint velocity = [pan velocityInView:view];
+    CGFloat dx = translation.x;
+    CGFloat dy = translation.y;
+    // shouldBegin often fires with a tiny translation; fall back to velocity.
+    if (fabs(dx) < 0.5 && fabs(dy) < 0.5) {
+        dx = velocity.x;
+        dy = velocity.y;
+    }
+    if (fabs(dx) < 6.0 && fabs(velocity.x) < 120.0) return NO;
+    return fabs(dx) > fabs(dy) * 1.35;
+}
+
+- (void)installDockSwipePan {
+    if (self.swipePan) return;
+    UIPanGestureRecognizer *pan =
+        [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleSwipePan:)];
+    pan.cancelsTouchesInView = NO;
+    pan.delaysTouchesBegan = NO;
+    pan.delaysTouchesEnded = NO;
+    pan.delegate = self;
+    [self addGestureRecognizer:pan];
+    self.swipePan = pan;
+
+    // A tap on the sliver of pill that does not overlap Music's mini player
+    // still has to open the player. The tap waits for this pan to fail.
+    UIView *miniHost = [self.expandedHost viewWithTag:0x4D324D48];
+    NSArray<UIView *> *hosts = @[
+        miniHost ?: (UIView *)NSNull.null,
+        self.collapsedHost ?: (UIView *)NSNull.null,
+    ];
+    for (UIView *host in hosts) {
+        if (![host isKindOfClass:UIView.class]) continue;
+        for (UIGestureRecognizer *gr in host.gestureRecognizers) {
+            if ([gr isKindOfClass:UITapGestureRecognizer.class]) {
+                [gr requireGestureRecognizerToFail:pan];
+            }
+        }
+    }
+}
+
+- (void)handleSwipePan:(UIPanGestureRecognizer *)pan {
+    [self m27ApplySwipePan:pan];
+}
+
+- (void)handleExternalSwipePan:(UIPanGestureRecognizer *)pan {
+    [self m27ApplySwipePan:pan];
+}
+
+- (CGFloat)m27SwipeWidth {
+    CGFloat width = CGRectGetWidth(self.expandedClip.bounds);
+    if (self.mode == M27DockModeCollapsed) {
+        width = CGRectGetWidth(self.collapsedClip.bounds);
+    }
+    if (width < 1.0) width = MAX(120.0, CGRectGetWidth(self.bounds) * 0.55);
+    return width;
+}
+
+- (void)m27LayoutCarouselInClip:(UIView *)clip
+                  currentStack:(UIView *)current
+                 incomingStack:(UIView *)incoming
+                           art:(UIImageView *)art
+                         title:(UILabel *)title
+                        artist:(UILabel *)artist
+                  incomingArt:(UIImageView *)incomingArt
+                incomingTitle:(UILabel *)incomingTitle
+               incomingArtist:(UILabel *)incomingArtist
+                      artSize:(CGFloat)artSize
+                       height:(CGFloat)height
+                      titleY0:(CGFloat)titleY0 {
+    CGFloat clipW = CGRectGetWidth(clip.bounds);
+    CGFloat offset = self.swipeOffset;
+    current.frame = CGRectMake(offset, 0, clipW, height);
+    CGFloat incomingShift = -clipW;
+    if (offset < -0.5 || (fabs(offset) <= 0.5 && self.swipeDirection < 0)) {
+        incomingShift = clipW;
+    }
+    incoming.frame = CGRectMake(offset + incomingShift, 0, clipW, height);
+    incoming.hidden = (fabs(offset) < 0.5 && !self.swipeActive);
+    [self m27LayoutTrackStack:current art:art title:title artist:artist
+                      artSize:artSize height:height titleY0:titleY0];
+    [self m27LayoutTrackStack:incoming art:incomingArt title:incomingTitle
+                       artist:incomingArtist artSize:artSize height:height titleY0:titleY0];
+}
+
+- (void)m27ApplySwipePan:(UIPanGestureRecognizer *)pan {
+    if (![pan isKindOfClass:UIPanGestureRecognizer.class]) return;
+    UIView *view = pan.view;
+    if (!view) return;
+    CGFloat tx = [pan translationInView:view].x;
+    CGFloat vx = [pan velocityInView:view].x;
+    UIGestureRecognizerState state = pan.state;
+    if (state == UIGestureRecognizerStateBegan) {
+        [self m27SwipeBegan:tx];
+        return;
+    }
+    if (state == UIGestureRecognizerStateChanged) {
+        [self m27SwipeChanged:tx];
+        return;
+    }
+    if (state == UIGestureRecognizerStateEnded ||
+        state == UIGestureRecognizerStateCancelled ||
+        state == UIGestureRecognizerStateFailed) {
+        BOOL cancelled = (state != UIGestureRecognizerStateEnded);
+        [self m27SwipeEnded:tx velocity:vx cancelled:cancelled];
+    }
+}
+
+- (void)m27SwipeBegan:(CGFloat)tx {
+    if (self.swipeActive) return;
+    if ([self.delegate respondsToSelector:@selector(floatingDockShouldAllowSwipe:)] &&
+        ![self.delegate floatingDockShouldAllowSwipe:self]) {
+        return;
+    }
+    self.swipeActive = YES;
+    self.swipeCommitted = NO;
+    self.swipeDirection = (tx < -0.5) ? -1 : ((tx > 0.5) ? 1 : 0);
+    if (self.swipeDirection != 0) {
+        [self m27AskDelegateForIncoming:self.swipeDirection];
+    } else {
+        [self m27ClearIncoming];
+    }
+    self.swipeOffset = 0;
+    M27WriteStatus(@"swipe_begin", @{
+        @"dir": (self.swipeDirection < 0) ? @"next" :
+                ((self.swipeDirection > 0) ? @"prev" : @"?"),
+    });
+    [self setNeedsLayout];
+}
+
+- (void)m27SwipeChanged:(CGFloat)tx {
+    if (!self.swipeActive || self.swipeCommitted) return;
+    CGFloat width = [self m27SwipeWidth];
+    CGFloat clamped = MAX(-width, MIN(width, tx));
+    NSInteger dir = 0;
+    if (clamped < -0.5) dir = -1;
+    else if (clamped > 0.5) dir = 1;
+    if (dir != 0 && dir != self.swipeDirection) {
+        self.swipeDirection = dir;
+        [self m27AskDelegateForIncoming:dir];
+    }
+    self.swipeOffset = clamped;
+    [self setNeedsLayout];
+}
+
+- (void)m27PromoteIncomingToCurrent {
+    // Always take incoming, even when blank. A next-track swipe has no queue
+    // to read, so incoming starts empty; keeping the outgoing labels here
+    // would snap the old track back after the carousel finished.
+    NSString *title = self.incomingTitle ?: @"";
+    NSString *artist = self.incomingArtist ?: @"";
+    UIImage *artwork = self.incomingArtwork;
+    _trackTitle = [title copy];
+    _artistName = [artist copy];
+    _artwork = artwork;
+    self.collapsedTitle.text = title;
+    self.expandedTitle.text = title;
+    self.collapsedArtist.text = artist;
+    self.expandedArtist.text = artist;
+    self.collapsedArt.image = artwork;
+    self.expandedArt.image = artwork;
+    [self m27ClearIncoming];
+}
+
+- (void)m27SwipeEnded:(CGFloat)tx velocity:(CGFloat)vx cancelled:(BOOL)cancelled {
+    if (!self.swipeActive || self.swipeCommitted) return;
+    CGFloat width = [self m27SwipeWidth];
+    NSInteger dir = self.swipeDirection;
+    if (dir == 0) {
+        if (tx < -0.5) dir = -1;
+        else if (tx > 0.5) dir = 1;
+    }
+    BOOL sameSign = (tx * (CGFloat)dir) > 0.0 || dir == 0;
+    BOOL farEnough = fabs(tx) > width * kM27SwipeCommitFraction;
+    BOOL flicked = (fabs(vx) > kM27SwipeCommitVelocity) && (vx * tx > 0.0);
+    BOOL commit = !cancelled && dir != 0 && sameSign && (farEnough || flicked);
+
+    if (commit) {
+        self.swipeCommitted = YES;
+        if ([self.delegate respondsToSelector:@selector(floatingDock:didCommitSwipeWithDirection:)]) {
+            [self.delegate floatingDock:self didCommitSwipeWithDirection:dir];
+        }
+        CGFloat target = (dir < 0) ? -width : width;
+        [self m27AnimateSwipeOffsetTo:target thenReset:YES];
+        return;
+    }
+
+    if ([self.delegate respondsToSelector:@selector(floatingDockDidCancelSwipe:)]) {
+        [self.delegate floatingDockDidCancelSwipe:self];
+    }
+    [self m27AnimateSwipeOffsetTo:0 thenReset:YES];
+}
+
+- (void)m27AnimateSwipeOffsetTo:(CGFloat)target thenReset:(BOOL)reset {
+    [UIView animateWithDuration:0.28
+                          delay:0
+         usingSpringWithDamping:0.92
+          initialSpringVelocity:0.35
+                        options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
+                     animations:^{
+                         self.swipeOffset = target;
+                         [self setNeedsLayout];
+                         [self layoutIfNeeded];
+                     }
+                     completion:^(BOOL finished) {
+                         (void)finished;
+                         if (!reset) return;
+                         if (self.swipeCommitted) {
+                             [self m27PromoteIncomingToCurrent];
+                         } else {
+                             [self m27ClearIncoming];
+                         }
+                         self.swipeOffset = 0;
+                         self.swipeDirection = 0;
+                         self.swipeActive = NO;
+                         self.swipeCommitted = NO;
+                         [self setNeedsLayout];
+                     }];
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gr {
+    if (gr != self.swipePan) return YES;
+    if (![gr isKindOfClass:UIPanGestureRecognizer.class]) return NO;
+    if ([self.delegate respondsToSelector:@selector(floatingDockShouldAllowSwipe:)] &&
+        ![self.delegate floatingDockShouldAllowSwipe:self]) {
+        return NO;
+    }
+    return [M27FloatingDock panGestureIsHorizontalSwipe:(UIPanGestureRecognizer *)gr];
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gr
+shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    if (gr != self.swipePan) return NO;
+    if ([other isKindOfClass:UITapGestureRecognizer.class]) return YES;
+    return NO;
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gr shouldReceiveTouch:(UITouch *)touch {
+    if (gr != self.swipePan) return YES;
+    UIView *view = touch.view;
+    UIView *tabsHost = [self.expandedHost viewWithTag:0x4D325448];
+    while (view && view != self) {
+        if ([view isKindOfClass:UIButton.class]) return NO;
+        // The tab row and the collapsed end-caps are not the mini pill.
+        if (view == tabsHost || view == self.tabsStack) return NO;
+        if (view == self.collapsedLeadingHost || view == self.collapsedTrailingHost) return NO;
+        view = view.superview;
+    }
+    return YES;
 }
 
 #pragma mark - Hit testing

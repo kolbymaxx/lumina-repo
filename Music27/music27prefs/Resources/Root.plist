@@ -10,7 +10,9 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.55: a correction. 1.1.54 was built on the belief that the album page and the navigation bar each had a download button, and scoped the lookup to the page so the two would not be confused. The log answered flatly — download=nil on all 192 samples, while the nav bar's control resolved every time. There is only one download button on this page and it is in the navigation bar, so scoping the lookup to the page did not separate two controls, it threw away the only one. That is why the glass button stopped doing anything and the red one stayed up top. The nav control is found again, its bar button item's own action is what the glass button fires (its view is not a UIControl, so touch events did nothing), it is hidden before the header gate rather than after it, and it is put back when you leave the page.
+			<string>1.1.56: swipe the mini pill left for the next track, right for the previous one. The gesture lives on Music's own mini player — the view the passthrough already delivers taps to — so tap-to-open-the-player and swipe-to-skip can both work. The artwork and titles slide as one unit inside a clipping pill, with a second stack coming the other way. Next-track artwork is blank until MediaRemote answers; previous uses tracks this process has already seen. Not yet verified on device.
+
+1.1.55: a correction. 1.1.54 was built on the belief that the album page and the navigation bar each had a download button, and scoped the lookup to the page so the two would not be confused. The log answered flatly — download=nil on all 192 samples, while the nav bar's control resolved every time. There is only one download button on this page and it is in the navigation bar, so scoping the lookup to the page did not separate two controls, it threw away the only one. That is why the glass button stopped doing anything and the red one stayed up top. The nav control is found again, its bar button item's own action is what the glass button fires (its view is not a UIControl, so touch events did nothing), it is hidden before the header gate rather than after it, and it is put back when you leave the page.
 
 1.1.54: the flashing button is finally identified, and it is not the one every previous build was chasing. The navigation bar has its own download control — a separate 28x28 MusicCoreUI.SymbolButton from the header's, which is why the two were indistinguishable in every log until 1.1.53 sampled the bar itself. The flash is a gate, not a delay: the install looks up play and shuffle first and returns early if either is missing, so during the second Music spends building the header asynchronously, nothing has been hidden at all — while the nav bar is painted from the first frame. Making the retry faster could never fix that, which is why 1.1.52 cut the header gap to a third and the flash survived. The nav button is now covered before that gate, and put back the moment the glass row is installed, because our row scrolls away with the artwork and the nav bar's button is the only download control left after that.
 
@@ -130,7 +132,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.55 — one download button, in the nav bar; 1.1.54 discarded it. Verified on iOS 17.3; 16.7 untested.</string>
+			<string>Music27 1.1.56 — swipe the mini pill to skip / go back. Reasoned, not yet on device; 16.7 untested.</string>
 		</dict>
 	</array>
 	<key>title</key>
