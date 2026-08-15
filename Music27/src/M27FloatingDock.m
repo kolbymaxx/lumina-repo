@@ -123,9 +123,9 @@ static const CGFloat kM27CircleButton = 44.0;
 
 /// Artwork + title + artist as one translating unit. The play/pause and skip
 /// buttons stay outside the clip so they do not slide with the carousel.
-- (UIView *)m27BuildTrackStackArt:(UIImageView **)artOut
-                            title:(UILabel **)titleOut
-                           artist:(UILabel **)artistOut {
+- (UIView *)m27BuildTrackStackArt:(UIImageView * __strong *)artOut
+                            title:(UILabel * __strong *)titleOut
+                           artist:(UILabel * __strong *)artistOut {
     UIView *stack = [[UIView alloc] initWithFrame:CGRectZero];
     stack.userInteractionEnabled = NO;
     stack.clipsToBounds = YES;
@@ -254,14 +254,26 @@ static const CGFloat kM27CircleButton = 44.0;
     _collapsedClip.backgroundColor = UIColor.clearColor;
     [_collapsedGlass.contentView addSubview:_collapsedClip];
 
-    _collapsedCurrentStack = [self m27BuildTrackStackArt:&_collapsedArt
-                                                   title:&_collapsedTitle
-                                                  artist:&_collapsedArtist];
+    UIImageView *collapsedArt = nil;
+    UILabel *collapsedTitle = nil;
+    UILabel *collapsedArtist = nil;
+    _collapsedCurrentStack = [self m27BuildTrackStackArt:&collapsedArt
+                                                   title:&collapsedTitle
+                                                  artist:&collapsedArtist];
+    _collapsedArt = collapsedArt;
+    _collapsedTitle = collapsedTitle;
+    _collapsedArtist = collapsedArtist;
     [_collapsedClip addSubview:_collapsedCurrentStack];
 
-    _collapsedIncomingStack = [self m27BuildTrackStackArt:&_collapsedIncomingArt
-                                                    title:&_collapsedIncomingTitle
-                                                   artist:&_collapsedIncomingArtist];
+    UIImageView *collapsedIncomingArt = nil;
+    UILabel *collapsedIncomingTitle = nil;
+    UILabel *collapsedIncomingArtist = nil;
+    _collapsedIncomingStack = [self m27BuildTrackStackArt:&collapsedIncomingArt
+                                                    title:&collapsedIncomingTitle
+                                                   artist:&collapsedIncomingArtist];
+    _collapsedIncomingArt = collapsedIncomingArt;
+    _collapsedIncomingTitle = collapsedIncomingTitle;
+    _collapsedIncomingArtist = collapsedIncomingArtist;
     _collapsedIncomingStack.hidden = YES;
     [_collapsedClip addSubview:_collapsedIncomingStack];
 
@@ -317,14 +329,26 @@ static const CGFloat kM27CircleButton = 44.0;
     _expandedClip.backgroundColor = UIColor.clearColor;
     [_miniGlass.contentView addSubview:_expandedClip];
 
-    _expandedCurrentStack = [self m27BuildTrackStackArt:&_expandedArt
-                                                  title:&_expandedTitle
-                                                 artist:&_expandedArtist];
+    UIImageView *expandedArt = nil;
+    UILabel *expandedTitle = nil;
+    UILabel *expandedArtist = nil;
+    _expandedCurrentStack = [self m27BuildTrackStackArt:&expandedArt
+                                                  title:&expandedTitle
+                                                 artist:&expandedArtist];
+    _expandedArt = expandedArt;
+    _expandedTitle = expandedTitle;
+    _expandedArtist = expandedArtist;
     [_expandedClip addSubview:_expandedCurrentStack];
 
-    _expandedIncomingStack = [self m27BuildTrackStackArt:&_expandedIncomingArt
-                                                   title:&_expandedIncomingTitle
-                                                  artist:&_expandedIncomingArtist];
+    UIImageView *expandedIncomingArt = nil;
+    UILabel *expandedIncomingTitle = nil;
+    UILabel *expandedIncomingArtist = nil;
+    _expandedIncomingStack = [self m27BuildTrackStackArt:&expandedIncomingArt
+                                                   title:&expandedIncomingTitle
+                                                  artist:&expandedIncomingArtist];
+    _expandedIncomingArt = expandedIncomingArt;
+    _expandedIncomingTitle = expandedIncomingTitle;
+    _expandedIncomingArtist = expandedIncomingArtist;
     _expandedIncomingStack.hidden = YES;
     [_expandedClip addSubview:_expandedIncomingStack];
 
@@ -665,8 +689,8 @@ static const CGFloat kM27CircleButton = 44.0;
         CGRectMake(nextX, (kM27ExpandedMiniHeight - eBtn) / 2.0, eBtn, eBtn);
     self.expandedPlayPause.frame =
         CGRectMake(nextX - eBtn - 2.0, (kM27ExpandedMiniHeight - eBtn) / 2.0, eBtn, eBtn);
-    CGFloat clipW = MAX(0, CGRectGetMinX(self.expandedPlayPause.frame) - 8.0 - ePad);
-    self.expandedClip.frame = CGRectMake(ePad, 0, clipW, kM27ExpandedMiniHeight);
+    CGFloat eClipW = MAX(0, CGRectGetMinX(self.expandedPlayPause.frame) - 8.0 - ePad);
+    self.expandedClip.frame = CGRectMake(ePad, 0, eClipW, kM27ExpandedMiniHeight);
     [self m27LayoutCarouselInClip:self.expandedClip
                     currentStack:self.expandedCurrentStack
                    incomingStack:self.expandedIncomingStack
