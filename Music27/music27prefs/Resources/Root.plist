@@ -10,7 +10,9 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.57: album artwork goes edge to edge under the nav bar, and the page takes the cover's colour. Music's own artwork view is resized — not replaced — so an animated cover keeps playing. The wash now sits on the collection view; painting it behind that view is why Artwork Color Theme never showed. Not yet verified on device.
+			<string>1.1.58: 1.1.57 left the cover as a centred square and the colour stopped at the Play row. Music resets the artwork frame after our layout pass, and the track cells are opaque black over the wash. This build re-pins the square from the collection view's own layout, paints the collection backgroundView, and clears visible cells so the colour runs the full page. Palette picks the most saturated pixel instead of a muddy 1×1 average. Animated covers keep playing unless Low Power Mode is on.
+
+1.1.57: album artwork goes edge to edge under the nav bar, and the page takes the cover's colour. Music's own artwork view is resized — not replaced — so an animated cover keeps playing. The wash now sits on the collection view; painting it behind that view is why Artwork Color Theme never showed. Failed on device — the square stayed stock and the colour stayed in the header.
 
 1.1.56: swipe the mini pill left for the next track, right for the previous one. The gesture lives on Music's own mini player — the view the passthrough already delivers taps to — so tap-to-open-the-player and swipe-to-skip can both work. The artwork and titles slide as one unit inside a clipping pill, with a second stack coming the other way. Next-track artwork is blank until MediaRemote answers; previous uses tracks this process has already seen. Verified on iOS 17.3.
 
@@ -134,7 +136,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.57 — full-bleed album art + colour match. Reasoned, not yet on device; 16.7 untested.</string>
+			<string>Music27 1.1.58 — full-bleed album art + full-page colour. 1.1.57 failed on device; 16.7 untested.</string>
 		</dict>
 	</array>
 	<key>title</key>

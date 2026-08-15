@@ -824,8 +824,15 @@ static const void *kM27ArtStockFrameKey = &kM27ArtStockFrameKey;
 static const void *kM27ArtStockCornerKey = &kM27ArtStockCornerKey;
 static const void *kM27UnclippedKey = &kM27UnclippedKey;
 static const void *kM27OrigBGKey = &kM27OrigBGKey;
+static const void *kM27OrigBGViewKey = &kM27OrigBGViewKey;
 static const void *kM27BleedLoggedKey = &kM27BleedLoggedKey;
 static const void *kM27ArtSampleKey = &kM27ArtSampleKey;
+static const void *kM27ArtBleedViewKey = &kM27ArtBleedViewKey;
+static const void *kM27BleedArtVCKey = &kM27BleedArtVCKey;
+static const NSInteger kM27BleedPlateTag = 0x4D324250; // 'M2BP'
+
+static BOOL gM27BleedReentry = NO;
+static __weak UIViewController *gM27BleedVC = nil;
 
 static UIView *M27FindSubviewWithSuffix(UIView *root, NSString *suffix, NSInteger depth) {
     if (!root || !suffix.length || depth > 8) return nil;
@@ -849,33 +856,170 @@ static UICollectionView *M27FindAlbumCollectionView(UIView *root, NSInteger dept
     return nil;
 }
 
-/// The 231×231 square sitting next to DetailsView inside DetailHeader.
-/// Measured 1.1.50: `{72, 101, 231, 231}` on a 375-wide page. A plain UIView —
-/// the thing that actually draws (image or video) is a level or two inside.
+static BOOL M27ViewHasPlayer(UIView *view) {
+    if (!view) return NO;
+    if ([view isKindOfClass:NSClassFromString(@"MTKView")]) return YES;
+    for (CALayer *layer in view.layer.sublayers) {
+        NSString *name = NSStringFromClass(layer.class);
+        if ([name containsString:@"AVPlayer"] || [name containsString:@"PlayerLayer"]) return YES;
+    }
+    return NO;
+}
+
+static BOOL M27ViewLooksLikeArtwork(UIView *view, CGRect pageBounds, CGRect pageFrame) {
+    if (!view || view.hidden || view.alpha < 0.01) return NO;
+    if ([view isKindOfClass:UIControl.class] || [view isKindOfClass:UILabel.class]) return NO;
+    if ([view isKindOfClass:UICollectionView.class] || [view isKindOfClass:UIScrollView.class]) return NO;
+    if (M27ClassNameHasSuffix(view, @"DetailsView")) return NO;
+    NSString *name = NSStringFromClass(view.class);
+    if ([name containsString:@"DetailsView"]) return NO;
+    CGFloat pageW = CGRectGetWidth(pageBounds);
+    CGFloat pageH = CGRectGetHeight(pageBounds);
+    CGFloat side = MIN(pageFrame.size.width, pageFrame.size.height);
+    if (side < 150.0) return NO;
+    // The whole DetailHeader is ~375×414 — skip anything that is already the page.
+    if (side > pageW * 0.96) return NO;
+    if (pageFrame.origin.y > pageH * 0.52) return NO;
+    CGFloat ratio = pageFrame.size.height > 0.5
+        ? (pageFrame.size.width / pageFrame.size.height) : 0;
+    if (ratio < 0.68 || ratio > 1.50) return NO;
+    return YES;
+}
+
+static CGFloat M27ArtworkScore(UIView *view, CGRect pageFrame) {
+    CGFloat score = MIN(pageFrame.size.width, pageFrame.size.height);
+    NSString *name = NSStringFromClass(view.class);
+    if ([name.lowercaseString containsString:@"artwork"]) score += 400.0;
+    if ([view isKindOfClass:UIImageView.class]) score += 200.0;
+    if (M27ViewHasPlayer(view)) score += 300.0;
+    return score;
+}
+
+/// 1.1.57 only looked at DetailHeader's *direct* children. On several albums
+/// the square is a grandchild, or a sibling of DetailHeader inside the
+/// reusable wrapper — and the page stayed stock. Search the header tree,
+/// then the whole page, by geometry.
 static UIView *M27FindAlbumArtworkView(UIView *page) {
     if (!page) return nil;
-    UIView *header = M27FindSubviewWithSuffix(page, @"DetailHeader", 0);
-    if (!header) return nil;
-
+    CGRect pageBounds = page.bounds;
     UIView *best = nil;
-    CGFloat bestSide = 0;
-    for (UIView *sub in header.subviews) {
-        if (M27ClassNameHasSuffix(sub, @"DetailsView")) continue;
-        NSString *name = NSStringFromClass(sub.class);
-        if ([name containsString:@"DetailsView"]) continue;
-        CGRect f = sub.frame;
-        CGFloat side = MIN(f.size.width, f.size.height);
-        if (side < 140.0) continue;
-        CGFloat ratio = (f.size.height > 0.5) ? (f.size.width / f.size.height) : 0;
-        BOOL squareish = (ratio > 0.75 && ratio < 1.35);
-        BOOL named = [name containsString:@"Artwork"] || [name containsString:@"artwork"];
-        if (!(squareish || named)) continue;
-        if (side > bestSide) {
-            best = sub;
-            bestSide = side;
+    CGFloat bestScore = 0;
+
+    NSMutableArray<UIView *> *queue = [NSMutableArray array];
+    UIView *header = M27FindSubviewWithSuffix(page, @"DetailHeader", 0);
+    UIView *reusable = M27FindSubviewWithSuffix(page, @"ContainerDetailHeaderReusableView", 0);
+    if (header) [queue addObject:header];
+    if (reusable && reusable != header) [queue addObject:reusable];
+    if (queue.count == 0) [queue addObject:page];
+
+    NSInteger visited = 0;
+    while (queue.count > 0 && visited < 80) {
+        UIView *view = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        visited++;
+        CGRect pageFrame = [view convertRect:view.bounds toView:page];
+        if (M27ViewLooksLikeArtwork(view, pageBounds, pageFrame)) {
+            CGFloat score = M27ArtworkScore(view, pageFrame);
+            if (score > bestScore) {
+                best = view;
+                bestScore = score;
+            }
+        }
+        NSInteger count = MIN((NSInteger)view.subviews.count, 24);
+        for (NSInteger i = 0; i < count; i++) {
+            [queue addObject:view.subviews[(NSUInteger)i]];
+        }
+    }
+    if (best) return best;
+
+    // Second pass: a player layer or a view named "artwork", even if the
+    // square is slightly off the geometry window (or already full-bleed).
+    [queue removeAllObjects];
+    if (header) [queue addObject:header];
+    if (reusable && reusable != header) [queue addObject:reusable];
+    if (queue.count == 0) [queue addObject:page];
+    visited = 0;
+    while (queue.count > 0 && visited < 80) {
+        UIView *view = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        visited++;
+        CGRect pageFrame = [view convertRect:view.bounds toView:page];
+        CGFloat side = MIN(pageFrame.size.width, pageFrame.size.height);
+        if (side >= 100.0 && pageFrame.origin.y <= pageBounds.size.height * 0.60) {
+            NSString *name = NSStringFromClass(view.class).lowercaseString;
+            BOOL named = [name containsString:@"artwork"];
+            BOOL player = M27ViewHasPlayer(view);
+            BOOL image = [view isKindOfClass:UIImageView.class] && ((UIImageView *)view).image != nil;
+            if ((named || player || image) && ![view isKindOfClass:UIControl.class]) {
+                CGFloat score = side + (named ? 400.0 : 0) + (player ? 300.0 : 0) + (image ? 200.0 : 0);
+                if (score > bestScore) {
+                    best = view;
+                    bestScore = score;
+                }
+            }
+        }
+        NSInteger count = MIN((NSInteger)view.subviews.count, 24);
+        for (NSInteger i = 0; i < count; i++) {
+            [queue addObject:view.subviews[(NSUInteger)i]];
         }
     }
     return best;
+}
+
+static UIView *M27FindMarkedArtwork(UIView *root) {
+    if (!root) return nil;
+    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:root];
+    NSInteger visited = 0;
+    while (queue.count > 0 && visited < 80) {
+        UIView *view = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        visited++;
+        if (objc_getAssociatedObject(view, kM27ArtBleedViewKey)) return view;
+        NSInteger count = MIN((NSInteger)view.subviews.count, 24);
+        for (NSInteger i = 0; i < count; i++) {
+            [queue addObject:view.subviews[(NSUInteger)i]];
+        }
+    }
+    return nil;
+}
+
+static UIView *M27ResolvedArtwork(UIViewController *vc, UIView *page) {
+    UIView *art = objc_getAssociatedObject(vc, kM27BleedArtVCKey);
+    if (art && art.superview && [art isDescendantOfView:page]) return art;
+    art = M27FindMarkedArtwork(page);
+    if (art) return art;
+    return M27FindAlbumArtworkView(page);
+}
+
+static BOOL M27LowPowerMode(void) {
+    return NSProcessInfo.processInfo.isLowPowerModeEnabled;
+}
+
+/// Freeze Music's own artwork. Do not swap it for a snapshot.
+/// Low Power Mode: pause any AVPlayer and stop layer time. Otherwise leave
+/// playback to Music — calling play() here would restart a cover Music paused.
+static void M27SetArtworkMotionEnabled(UIView *art, BOOL enabled) {
+    if (!art) return;
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:art];
+    NSInteger visited = 0;
+    while (stack.count > 0 && visited < 40) {
+        UIView *view = stack.lastObject;
+        [stack removeLastObject];
+        visited++;
+        view.layer.speed = enabled ? 1.0 : 0.0;
+        for (CALayer *layer in view.layer.sublayers) {
+            NSString *lname = NSStringFromClass(layer.class);
+            if (![lname containsString:@"AVPlayer"] && ![lname containsString:@"PlayerLayer"]) {
+                continue;
+            }
+            id player = nil;
+            @try { player = [layer valueForKey:@"player"]; } @catch (__unused NSException *ex) {}
+            if (!enabled && player && [player respondsToSelector:@selector(pause)]) {
+                @try { [player pause]; } @catch (__unused NSException *ex) {}
+            }
+        }
+        [stack addObjectsFromArray:view.subviews];
+    }
 }
 
 static void M27RememberBackground(UIView *view) {
@@ -1022,88 +1166,75 @@ static NSString *M27ArtworkInnerDescription(UIView *art) {
     return parts.count ? [parts componentsJoinedByString:@" "] : @"-";
 }
 
-static void M27RestoreFullBleed(UIViewController *vc) {
-    if (!vc.isViewLoaded) return;
-    UIView *art = M27FindAlbumArtworkView(vc.view);
-    if (art) {
-        NSValue *stock = objc_getAssociatedObject(art, kM27ArtStockFrameKey);
-        if (stock) art.frame = stock.CGRectValue;
-        NSNumber *corner = objc_getAssociatedObject(art, kM27ArtStockCornerKey);
-        if (corner) art.layer.cornerRadius = corner.doubleValue;
-        objc_setAssociatedObject(art, kM27ArtStockFrameKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(art, kM27ArtStockCornerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        for (CALayer *layer in art.layer.sublayers.copy) {
-            if ([layer.name isEqualToString:@"M27ArtFade"]) [layer removeFromSuperlayer];
-        }
-    }
-    UIView *header = M27FindSubviewWithSuffix(vc.view, @"DetailHeader", 0);
-    M27ReclipView(header);
-    M27ReclipView(header.superview);
-    UICollectionView *collection = M27FindAlbumCollectionView(vc.view, 0);
-    M27RestoreBackground(vc.view);
-    M27RestoreBackground(collection);
-    M27RestoreBackground(collection.superview);
-    M27RestoreBackground(header);
-    M27RestoreBackground(header.superview);
-    M27ApplyAlbumWash(collection, nil);
-    M27ApplyAlbumWash(vc.view, nil);
-    M27SetAlbumNavBarClear(vc, NO);
-    objc_setAssociatedObject(vc, kM27BleedLoggedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+static NSString *M27ColorHex(UIColor *color) {
+    if (!color) return @"-";
+    CGFloat r = 0, g = 0, b = 0, a = 1;
+    if (![color getRed:&r green:&g blue:&b alpha:&a]) return @"-";
+    return [NSString stringWithFormat:@"#%02X%02X%02X",
+            (int)(r * 255.0 + 0.5), (int)(g * 255.0 + 0.5), (int)(b * 255.0 + 0.5)];
 }
 
-static BOOL M27ApplyFullBleed(UIViewController *vc) {
-    if (!vc.isViewLoaded || !vc.view) return NO;
-    M27Prefs *prefs = M27Prefs.shared;
-    if (!(prefs.enabled && prefs.glassTabBarEnabled)) {
-        M27RestoreFullBleed(vc);
-        return NO;
+/// Page {0,0,W,W} converted into the artwork's superview. Window coords when
+/// the view is on-screen so a collection-view layout cannot leave us in a
+/// stale page space.
+static CGRect M27BleedTargetFrame(UIView *art, UIView *page) {
+    if (!art.superview) return CGRectZero;
+    CGFloat width = 0;
+    if (art.window) {
+        width = CGRectGetWidth(art.window.bounds);
+        if (width >= 200.0) {
+            return [art.superview convertRect:CGRectMake(0, 0, width, width) fromView:nil];
+        }
     }
-    if (!M27IsAlbumDetailController(vc)) return NO;
+    if (page) width = CGRectGetWidth(page.bounds);
+    if (width < 200.0) return CGRectZero;
+    return [page convertRect:CGRectMake(0, 0, width, width) toView:art.superview];
+}
 
-    UIView *page = vc.view;
-    UIView *art = M27FindAlbumArtworkView(page);
-    if (!art) return NO;
-
-    CGFloat pageW = CGRectGetWidth(page.bounds);
-    if (pageW < 200.0) return NO;
-
-    NSValue *stockVal = objc_getAssociatedObject(art, kM27ArtStockFrameKey);
-    if (!stockVal && CGRectGetWidth(art.frame) < pageW * 0.90) {
-        objc_setAssociatedObject(art, kM27ArtStockFrameKey,
-                                 [NSValue valueWithCGRect:art.frame],
-                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(art, kM27ArtStockCornerKey,
-                                 @(art.layer.cornerRadius),
-                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+static void M27UnclipToCollection(UIView *from, UIView *stop) {
+    UIView *view = from;
+    NSInteger hops = 0;
+    while (view && hops < 8) {
+        if (view == stop) break;
+        M27UnclipView(view);
+        view = view.superview;
+        hops++;
     }
+}
 
-    UIView *header = art.superview;
-    // Header starts at safe_top (94 on 17.3). Full-bleed has to escape that
-    // origin and the header's own inset — widening inside the header is not
-    // enough. Target is page {0,0,W,W}; convert into the header.
-    CGRect pageTarget = CGRectMake(0, 0, pageW, pageW);
-    CGRect headerTarget = [page convertRect:pageTarget toView:header];
-    if (!CGRectEqualToRect(art.frame, headerTarget)) {
-        art.frame = headerTarget;
+static void M27ReclipToCollection(UIView *from, UIView *stop) {
+    UIView *view = from;
+    NSInteger hops = 0;
+    while (view && hops < 8) {
+        if (view == stop) break;
+        M27ReclipView(view);
+        view = view.superview;
+        hops++;
     }
-    art.layer.cornerRadius = 0;
-    if (@available(iOS 13.0, *)) {
-        art.layer.cornerCurve = kCACornerCurveContinuous;
+}
+
+static void M27ClearVisibleCellBackgrounds(UICollectionView *collection) {
+    if (!collection) return;
+    for (UICollectionViewCell *cell in collection.visibleCells) {
+        cell.backgroundColor = UIColor.clearColor;
+        cell.contentView.backgroundColor = UIColor.clearColor;
     }
-    art.clipsToBounds = YES;
-    M27FillArtworkSubtree(art, 0);
+    for (NSString *kind in @[
+             UICollectionElementKindSectionHeader,
+             UICollectionElementKindSectionFooter
+         ]) {
+        for (UICollectionReusableView *supp in [collection visibleSupplementaryViewsOfKind:kind]) {
+            if (supp.tag == kM27BleedPlateTag) continue;
+            if (objc_getAssociatedObject(supp, kM27ArtBleedViewKey)) continue;
+            supp.backgroundColor = UIColor.clearColor;
+        }
+    }
+}
 
-    // Overflow is upward into the nav-bar band, still inside the collection
-    // view. Only the header and its reusable wrapper clip that overflow.
-    M27UnclipView(header);
-    M27UnclipView(header.superview);
-
-    UICollectionView *collection = M27FindAlbumCollectionView(page, 0);
-    UIImage *image = M27LargestImageInView(art);
+static UIImage *M27ImageForAlbumColor(UIView *art, UIView *page) {
+    UIImage *image = art ? M27LargestImageInView(art) : nil;
     if (!image) image = M27LargestImageInView(page);
-    // Animated covers have no UIImageView. Sample the live view once for
-    // colour only — this image is never installed as the cover.
-    if (!image && !CGRectIsEmpty(art.bounds)) {
+    if (!image && art && !CGRectIsEmpty(art.bounds)) {
         id rawSample = objc_getAssociatedObject(art, kM27ArtSampleKey);
         UIImage *sampled = [rawSample isKindOfClass:UIImage.class] ? (UIImage *)rawSample : nil;
         if (!sampled) {
@@ -1118,71 +1249,256 @@ static BOOL M27ApplyFullBleed(UIViewController *vc) {
         }
         image = sampled;
     }
-    M27ColorPalette *palette = [M27ColorTheme.shared paletteFromImage:image];
-    if (palette) {
-        [M27ColorTheme.shared applyPalette:palette animated:NO];
-        NSArray<UIView *> *walls = @[
-            page,
-            collection ?: (UIView *)[NSNull null],
-            collection.superview ?: (UIView *)[NSNull null],
-            header ?: (UIView *)[NSNull null],
-            header.superview ?: (UIView *)[NSNull null],
-        ];
-        for (UIView *wall in walls) {
-            if (![wall isKindOfClass:UIView.class]) continue;
-            M27RememberBackground(wall);
-            // Header wrappers go clear so the artwork shows; the collection
-            // and page take the extracted colour so the track list matches.
-            BOOL isHeader = (wall == header || wall == header.superview);
-            wall.backgroundColor = isHeader ? UIColor.clearColor : palette.background;
+    return image;
+}
+
+static void M27InstallBleedPlate(UICollectionView *collection, UIColor *color) {
+    if (!collection || !color) return;
+    UIView *existing = collection.backgroundView;
+    if (existing.tag != kM27BleedPlateTag) {
+        if (!objc_getAssociatedObject(collection, kM27OrigBGViewKey)) {
+            id stored = existing ?: [NSNull null];
+            objc_setAssociatedObject(collection, kM27OrigBGViewKey, stored,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
-        M27ApplyAlbumWash(collection ?: page, palette);
+        UIView *plate = [[UIView alloc] initWithFrame:collection.bounds];
+        plate.tag = kM27BleedPlateTag;
+        plate.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        collection.backgroundView = plate;
+        existing = plate;
+    }
+    existing.backgroundColor = color;
+    existing.frame = collection.bounds;
+}
+
+static void M27PaintAlbumPageColor(UIView *page, UIView *header, UICollectionView *collection,
+                                   M27ColorPalette *palette) {
+    if (!palette) return;
+    [M27ColorTheme.shared applyPalette:palette animated:NO];
+    NSArray *walls = @[
+        page ?: (UIView *)[NSNull null],
+        collection ?: (UIView *)[NSNull null],
+        collection.superview ?: (UIView *)[NSNull null],
+        header ?: (UIView *)[NSNull null],
+        header.superview ?: (UIView *)[NSNull null],
+    ];
+    for (UIView *wall in walls) {
+        if (![wall isKindOfClass:UIView.class]) continue;
+        M27RememberBackground(wall);
+        BOOL isHeader = (wall == header || wall == header.superview);
+        wall.backgroundColor = isHeader ? UIColor.clearColor : palette.background;
+    }
+    M27InstallBleedPlate(collection, palette.background);
+    M27ClearVisibleCellBackgrounds(collection);
+    M27ApplyAlbumWash(collection ?: page, palette);
+}
+
+static void M27EnsurePowerObserver(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        [NSNotificationCenter.defaultCenter addObserverForName:NSProcessInfoPowerStateDidChangeNotification
+                                                        object:nil
+                                                         queue:NSOperationQueue.mainQueue
+                                                    usingBlock:^(__unused NSNotification *note) {
+            UIViewController *vc = gM27BleedVC;
+            if (!vc.isViewLoaded || !vc.view.window) return;
+            UIView *art = objc_getAssociatedObject(vc, kM27BleedArtVCKey);
+            if (art) M27SetArtworkMotionEnabled(art, !M27LowPowerMode());
+        }];
+    });
+}
+
+static UIViewController *M27AlbumPageControllerForView(UIView *view) {
+    UIResponder *responder = view;
+    while (responder) {
+        if ([responder isKindOfClass:UIViewController.class]) {
+            UIViewController *vc = (UIViewController *)responder;
+            if (M27IsAlbumDetailController(vc)) return vc;
+        }
+        responder = responder.nextResponder;
+    }
+    return nil;
+}
+
+static void M27RestoreFullBleed(UIViewController *vc) {
+    if (!vc.isViewLoaded) return;
+    UIView *art = objc_getAssociatedObject(vc, kM27BleedArtVCKey);
+    if (!art) art = M27FindMarkedArtwork(vc.view);
+    if (!art) art = M27FindAlbumArtworkView(vc.view);
+    UICollectionView *collection = M27FindAlbumCollectionView(vc.view, 0);
+    if (art) {
+        objc_setAssociatedObject(art, kM27ArtBleedViewKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        M27SetArtworkMotionEnabled(art, YES);
+        NSValue *stock = objc_getAssociatedObject(art, kM27ArtStockFrameKey);
+        if (stock) art.frame = stock.CGRectValue;
+        NSNumber *corner = objc_getAssociatedObject(art, kM27ArtStockCornerKey);
+        if (corner) art.layer.cornerRadius = corner.doubleValue;
+        objc_setAssociatedObject(art, kM27ArtStockFrameKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(art, kM27ArtStockCornerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        for (CALayer *layer in art.layer.sublayers.copy) {
+            if ([layer.name isEqualToString:@"M27ArtFade"]) [layer removeFromSuperlayer];
+        }
+        M27ReclipToCollection(art.superview, collection);
+    }
+    objc_setAssociatedObject(vc, kM27BleedArtVCKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (gM27BleedVC == vc) gM27BleedVC = nil;
+    UIView *header = M27FindSubviewWithSuffix(vc.view, @"DetailHeader", 0);
+    M27ReclipView(header);
+    M27ReclipView(header.superview);
+    if (collection) {
+        id stored = objc_getAssociatedObject(collection, kM27OrigBGViewKey);
+        if (stored) {
+            collection.backgroundView = [stored isKindOfClass:UIView.class] ? (UIView *)stored : nil;
+            objc_setAssociatedObject(collection, kM27OrigBGViewKey, nil,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
+    M27RestoreBackground(vc.view);
+    M27RestoreBackground(collection);
+    M27RestoreBackground(collection.superview);
+    M27RestoreBackground(header);
+    M27RestoreBackground(header.superview);
+    M27ApplyAlbumWash(collection, nil);
+    M27ApplyAlbumWash(vc.view, nil);
+    M27SetAlbumNavBarClear(vc, NO);
+    objc_setAssociatedObject(vc, kM27BleedLoggedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static BOOL M27ApplyFullBleed(UIViewController *vc) {
+    if (gM27BleedReentry) return NO;
+    if (!vc.isViewLoaded || !vc.view) return NO;
+    M27Prefs *prefs = M27Prefs.shared;
+    if (!(prefs.enabled && prefs.glassTabBarEnabled)) {
+        M27RestoreFullBleed(vc);
+        return NO;
+    }
+    if (!M27IsAlbumDetailController(vc)) return NO;
+
+    UIView *page = vc.view;
+    CGFloat pageW = CGRectGetWidth(page.bounds);
+    if (pageW < 200.0) return NO;
+
+    gM27BleedReentry = YES;
+    M27EnsurePowerObserver();
+    gM27BleedVC = vc;
+
+    UIView *art = M27ResolvedArtwork(vc, page);
+    UIView *header = art.superview ?: M27FindSubviewWithSuffix(page, @"DetailHeader", 0);
+    UICollectionView *collection = M27FindAlbumCollectionView(page, 0);
+    BOOL lpm = M27LowPowerMode();
+    BOOL plateOK = collection.backgroundView.tag == kM27BleedPlateTag;
+    CGRect target = art ? M27BleedTargetFrame(art, page) : CGRectZero;
+    BOOL frameOK = art && !CGRectIsEmpty(target) &&
+        fabs(art.frame.origin.x - target.origin.x) < 0.5 &&
+        fabs(art.frame.size.width - target.size.width) < 0.5;
+
+    // Scrolling re-lays out the collection. Do not re-extract a palette or
+    // walk the artwork tree on every tick — just keep cells clear and the
+    // square pinned.
+    if (frameOK && plateOK && objc_getAssociatedObject(vc, kM27BleedLoggedKey)) {
+        if (!CGRectEqualToRect(art.frame, target)) art.frame = target;
+        M27ClearVisibleCellBackgrounds(collection);
+        M27SetArtworkMotionEnabled(art, !lpm);
+        gM27BleedReentry = NO;
+        return YES;
+    }
+    if (!art && plateOK && objc_getAssociatedObject(vc, kM27BleedLoggedKey)) {
+        M27ClearVisibleCellBackgrounds(collection);
+        gM27BleedReentry = NO;
+        return NO;
     }
 
+    if (art) {
+        objc_setAssociatedObject(vc, kM27BleedArtVCKey, art, OBJC_ASSOCIATION_ASSIGN);
+        objc_setAssociatedObject(art, kM27ArtBleedViewKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        NSValue *stockVal = objc_getAssociatedObject(art, kM27ArtStockFrameKey);
+        if (!stockVal && CGRectGetWidth(art.frame) < pageW * 0.90) {
+            objc_setAssociatedObject(art, kM27ArtStockFrameKey,
+                                     [NSValue valueWithCGRect:art.frame],
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(art, kM27ArtStockCornerKey,
+                                     @(art.layer.cornerRadius),
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+
+        target = M27BleedTargetFrame(art, page);
+        if (!CGRectIsEmpty(target) && !CGRectEqualToRect(art.frame, target)) {
+            art.frame = target;
+        }
+        art.layer.cornerRadius = 0;
+        if (@available(iOS 13.0, *)) {
+            art.layer.cornerCurve = kCACornerCurveContinuous;
+        }
+        art.clipsToBounds = YES;
+        M27FillArtworkSubtree(art, 0);
+        M27UnclipToCollection(art.superview, collection);
+        M27SetArtworkMotionEnabled(art, !lpm);
+    }
+
+    UIImage *image = M27ImageForAlbumColor(art, page);
+    M27ColorPalette *palette = [M27ColorTheme.shared paletteFromImage:image];
+    // Colour the whole page even when the square was not found. 1.1.57
+    // returned here and left Apple's header-only wash + black track cells.
+    M27PaintAlbumPageColor(page, header, collection, palette);
     M27SetAlbumNavBarClear(vc, YES);
 
-    CAGradientLayer *fade = nil;
-    for (CALayer *layer in art.layer.sublayers) {
-        if ([layer.name isEqualToString:@"M27ArtFade"]) {
-            fade = (CAGradientLayer *)layer;
-            break;
+    if (art) {
+        CAGradientLayer *fade = nil;
+        for (CALayer *layer in art.layer.sublayers) {
+            if ([layer.name isEqualToString:@"M27ArtFade"]) {
+                fade = (CAGradientLayer *)layer;
+                break;
+            }
         }
+        if (!fade) {
+            fade = [CAGradientLayer layer];
+            fade.name = @"M27ArtFade";
+            [art.layer addSublayer:fade];
+        }
+        fade.frame = art.bounds;
+        UIColor *fadeTo = palette.background ?: UIColor.blackColor;
+        fade.colors = @[
+            (id)[UIColor clearColor].CGColor,
+            (id)[UIColor clearColor].CGColor,
+            (id)[fadeTo colorWithAlphaComponent:0.55].CGColor,
+        ];
+        fade.locations = @[ @0.0, @0.62, @1.0 ];
+        fade.startPoint = CGPointMake(0.5, 0.0);
+        fade.endPoint = CGPointMake(0.5, 1.0);
     }
-    if (!fade) {
-        fade = [CAGradientLayer layer];
-        fade.name = @"M27ArtFade";
-        [art.layer addSublayer:fade];
-    }
-    fade.frame = art.bounds;
-    UIColor *fadeTo = palette.background ?: UIColor.blackColor;
-    fade.colors = @[
-        (id)[UIColor clearColor].CGColor,
-        (id)[UIColor clearColor].CGColor,
-        (id)[fadeTo colorWithAlphaComponent:0.55].CGColor,
-    ];
-    fade.locations = @[ @0.0, @0.62, @1.0 ];
-    fade.startPoint = CGPointMake(0.5, 0.0);
-    fade.endPoint = CGPointMake(0.5, 1.0);
 
-    if (!objc_getAssociatedObject(vc, kM27BleedLoggedKey)) {
-        objc_setAssociatedObject(vc, kM27BleedLoggedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    NSString *foundNow = art ? @"yes" : @"no";
+    id logged = objc_getAssociatedObject(vc, kM27BleedLoggedKey);
+    NSString *loggedFound = [logged isKindOfClass:NSString.class] ? (NSString *)logged : nil;
+    if (!loggedFound || ![loggedFound isEqualToString:foundNow]) {
+        objc_setAssociatedObject(vc, kM27BleedLoggedKey, foundNow, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (art) target = M27BleedTargetFrame(art, page);
         CGFloat headerBG = header.backgroundColor
             ? CGColorGetAlpha(header.backgroundColor.CGColor) : 0.0;
         CGFloat collectionBG = collection.backgroundColor
             ? CGColorGetAlpha(collection.backgroundColor.CGColor) : 0.0;
+        NSInteger cells = collection.visibleCells.count;
         M27WriteStatus(@"album_bleed", @{
-            @"art": M27DescribeControl(art),
+            @"found": art ? @"yes" : @"no",
+            @"art": art ? M27DescribeControl(art) : @"nil",
             @"header": header ? NSStringFromClass(header.class) : @"nil",
             @"collection": collection ? NSStringFromClass(collection.class) : @"nil",
-            @"target": NSStringFromCGRect(headerTarget),
-            @"page": NSStringFromCGRect(pageTarget),
+            @"target": NSStringFromCGRect(target),
+            @"page": NSStringFromCGRect(page.bounds),
             @"header_bg": @((double)headerBG),
             @"collection_bg": @((double)collectionBG),
+            @"cells": @((long)cells),
+            @"plate": (collection.backgroundView.tag == kM27BleedPlateTag) ? @"yes" : @"no",
             @"palette": palette ? @"yes" : @"no",
+            @"color": M27ColorHex(palette.background),
+            @"lpm": lpm ? @"yes" : @"no",
             @"inner": M27ArtworkInnerDescription(art),
         });
     }
-    return YES;
+
+    gM27BleedReentry = NO;
+    return art != nil;
 }
 
 static BOOL M27InstallAlbumControls(UIViewController *vc) {
@@ -1565,6 +1881,45 @@ static void M27ReportAlbumTree(UIViewController *vc) {
     // already present, which guaranteed the late path won every time.
     M27InstallAlbumControls(self);
     M27ApplyFullBleed(self);
+}
+
+%end
+
+/// Music's collection view resets the artwork frame after the view
+/// controller's layout pass. Re-pin the marked square here, and only here —
+/// a global UIView hook that did more than this would be too hot.
+%hook UIView
+
+- (void)layoutSubviews {
+    %orig;
+    if (gM27BleedReentry) return;
+    if (!objc_getAssociatedObject(self, kM27ArtBleedViewKey)) return;
+    CGRect target = M27BleedTargetFrame(self, nil);
+    if (CGRectIsEmpty(target)) return;
+    if (fabs(self.frame.origin.x - target.origin.x) < 0.5 &&
+        fabs(self.frame.origin.y - target.origin.y) < 0.5 &&
+        fabs(self.frame.size.width - target.size.width) < 0.5 &&
+        fabs(self.frame.size.height - target.size.height) < 0.5) {
+        return;
+    }
+    gM27BleedReentry = YES;
+    self.frame = target;
+    M27FillArtworkSubtree(self, 0);
+    gM27BleedReentry = NO;
+}
+
+%end
+
+%hook UICollectionView
+
+- (void)layoutSubviews {
+    %orig;
+    if (gM27BleedReentry) return;
+    M27Prefs *prefs = M27Prefs.shared;
+    if (!(prefs.enabled && prefs.glassTabBarEnabled)) return;
+    UIViewController *vc = M27AlbumPageControllerForView(self);
+    if (!vc) return;
+    M27ApplyFullBleed(vc);
 }
 
 %end
