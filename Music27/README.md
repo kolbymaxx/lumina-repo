@@ -7,6 +7,7 @@ Jailbreak tweak that restyles **Apple Music on iOS 16 / 17** toward the **iOS 26
   - **Collapsed (after scroll down):** merged pill with red Music button · now playing · Search
   - Tap the **red button** to expand back to the 5-tab layout
 - **Album / playlist controls:** Shuffle (circle) · Play (pill) · Download (circle)
+- **Full-bleed album artwork** under the nav bar, page colour from the cover (1.1.57; not yet on device)
 - Artwork-driven color wash on album / playlist / now-playing
 - **Pinned** row at the top of Library + Pin / Unpin in context menus and detail nav bars
 
@@ -20,11 +21,11 @@ Settings live under **Settings → Music27**.
 2. Scrolling down collapses into the merged red · mini · Search pill.
 3. Tap the **red button** to expand back to the 5-tab layout.
 4. Stock mini / tabs stay intact; glass pills float in a **passthrough bottom-strip window at `Normal + 2`** with no solid cover plate. The window must never be full-screen — see *Measured* under **Verify**.
-5. **Swipe the mini pill** left for next, right for previous. The pan lives on Music's own mini player so tap-to-open still passes through. Reasoned in 1.1.56; not yet on device.
+5. **Swipe the mini pill** left for next, right for previous. The pan lives on Music's own mini player so tap-to-open still passes through. Verified on 17.3.
 
 ## Planned next: full-bleed album artwork
 
-Not started. Recorded here so it survives the conversation.
+**Shipped in 1.1.57. Reasoned, not yet verified on device.**
 
 **The change.** On the album / playlist detail page, iOS 26/27 runs the cover
 art **edge to edge** across the top — behind the nav bar, no inset square — and
@@ -149,9 +150,18 @@ safe_top = 94
 - Hiding a view you still need to hit-test needs a **mask**, never `alpha` or
   `layer.opacity` — they are the same property. See 1.1.43.
 
+**On-device checks for 1.1.57 (iPhone 12 mini / 17.3):**
+
+- Artwork reaches the top of the screen, behind the nav bar, full width.
+- The track list background matches the cover's main colour.
+- An animated cover (e.g. *Positions (Deluxe)*) keeps playing, not a frozen frame.
+- The glass Shuffle / Play / Download row is still on the header and still works.
+- `status.log` shows `album_bleed` with `art=`, `palette=yes`, and `inner=` naming
+  the drawer (image vs player layer). `art=nil` means the square was not found.
+
 ## Planned next: swipe the mini pill to skip / go back
 
-**Shipped in 1.1.56. Reasoned, not yet verified on device.**
+**Shipped in 1.1.56. Verified on iPhone 12 mini / iOS 17.3.**
 
 **The change.** On iOS 26/27 the mini player is swipeable: drag it left for the
 next track, right for the previous one, and the artwork and titles slide with
@@ -188,7 +198,7 @@ seen (up to 8). Next-track incoming starts blank and fills if MediaRemote
 answers during the settle animation. That is a measured limit, not a guess —
 say so if the incoming side looks empty on a skip-forward.
 
-**On-device checks that still have to happen (iPhone 12 mini / 17.3):**
+**On-device checks (iPhone 12 mini / 17.3) — swipe is verified.** Remaining:
 
 - Tap on the pill still opens the full player in both dock modes.
 - Swipe left / right skips and goes back, and the stacks slide rather than cut.
@@ -228,7 +238,8 @@ say so if the incoming side looks empty on a skip-forward.
 | **1.1.27** | Stray sixth tab: Music reports **6 view controllers but shows 5 tabs**, and the extra one rendered as "Tab 5". Dock indices are now mapped to the controllers that actually own a tab bar item |
 | **1.1.28** | Hides Music's own tab bar + mini player behind the dock. Worked — but hiding with `alpha` also made the mini player **un-hit-testable**, so the dock's Now Playing pill went dead |
 | **1.1.29** | Hides via `layer.opacity` instead of `alpha`. ~~`hitTest:` refuses any view with `alpha < 0.01`, so `alpha` was hiding the very thing it needed to find.~~ **Wrong — see 1.1.43.** `UIView.alpha` is backed by `CALayer.opacity`; they are the same property, so this changed nothing. The view stayed un-hit-testable for fourteen more versions |
-| **1.1.56** | **Swipe the mini pill to skip / go back.** A pan on Music's own mini player — the view the passthrough already delivers taps to — drives a two-stack carousel on both dock modes. Music's tap-to-expand waits for that pan to fail, so tap-to-open and swipe-to-skip can coexist. Previous incoming uses tracks this process has already seen; next incoming is blank until MediaRemote answers. Direction-biased so a 52pt capsule does not steal vertical scrolls. **Reasoned, not yet on device.** |
+| **1.1.57** | **Full-bleed album artwork + colour match.** Music's own artwork view — the 231×231 square measured in 1.1.50 — is resized to `{0,0,W,W}` in page coordinates so it sits edge to edge under the nav bar. Ancestors that clip (DetailHeader, its reusable wrapper) are unclipped; the view is not replaced, so an animated cover keeps whatever is driving it. The wash moves onto the `UICollectionView` (the opaque wall that hid it at `zPosition -1000` on `vc.view`). Page / collection backgrounds take the extracted colour. `album_bleed` names the art view, the inner drawer, and whether a palette was applied. **Reasoned, not yet on device.** Verify against an animated cover, not just a still one. |
+| **1.1.56** | **Swipe the mini pill to skip / go back.** Verified on iPhone 12 mini / 17.3. A pan on Music's own mini player — the view the passthrough already delivers taps to — drives a two-stack carousel on both dock modes. Music's tap-to-expand waits for that pan to fail, so tap-to-open and swipe-to-skip can coexist. Previous incoming uses tracks this process has already seen; next incoming is blank until MediaRemote answers. Direction-biased so a 52pt capsule does not steal vertical scrolls. **Reasoned, not yet on device.** |
 | **1.1.55** | **1.1.54 was wrong, and the log said so in one number.** | 1.1.54 asserted there were two download controls — one in the nav bar, one in the header — and scoped `M27FindDownloadControl` to `vc.view` to keep them apart. On device: **`download=nil` on all 192 samples**, while `nav_download` resolved every time. There is no download button inside the album page on 17.3. Scoping the lookup to the page did not separate two controls, it discarded the only one — which is exactly why the glass button "does nothing" and the red one sat at the top permanently. Two consequences follow. **The 1.1.53 "regression" was not one:** the label match did change what the lookup returned, but from *nothing yet* to *the real control*, and the drop in `download=nil` counts was the fix appearing, not a fault. **And the nav button is not a spare:** ours mirrors and fires it, so restoring it while our row is up just puts the duplicate back, and iOS 27 shows only "•••" there anyway — it is now restored on `viewWillDisappear` alone. **The tap works because it stopped pretending the view was a control.** `MusicCoreUI.SymbolButton` is not a `UIControl`, so `sendActionsForControlEvents:` reached nothing; the row keeps the `UIBarButtonItem` and sends its own `target`/`action`, both public properties. **The hide is retried, not one-shot** — at `viewWillAppear` the item usually has no view yet, which is why 1.1.54's single attempt left `nav_download_opacity=1` in 191 of 192 samples — and it re-hides when Music swaps the item through Download → Downloading → Downloaded, handing the previous view back first |
 | **1.1.54** | **The flashing button was never the one being chased.** 1.1.53's `album_nav` named the nav bar's three right-hand items: `More` (SymbolButton 28×28, alpha 1.0), a `{0,1}` spacer, and **`Download` — a second `MusicCoreUI.SymbolButton`, also 28×28**. Two identical-looking controls on two different screens is exactly why every log until now was ambiguous. **The flash is a gate, not a delay.** `M27InstallAlbumControls` looks up play and shuffle first and returns early if either is missing — *before it ever reaches the download control* — and Music builds the header asynchronously, so for that whole window nothing has been hidden while the nav bar is painted from frame one. No amount of speeding the retry up can close a window that starts before the retry has anything to do, which is why 1.1.52 cut the header gap from 1.2s to 0.3s and the flash survived. The nav button is now hidden **before** the gate at `viewWillAppear`, and restored the moment the glass row installs — our row is a sibling of the header row and scrolls away with it, so leaving the nav button hidden would take away the only download control a scrolled page has. Also restored unconditionally on `viewWillDisappear`, prefs check or not. **And a self-inflicted regression, caught by the numbers:** 1.1.53's new accessibility-label match made the nav-bar loop in `M27FindDownloadControl` hit for the first time, so `download=nil` went from 52 occurrences in the 1.1.52 half of the log to **zero** in the 1.1.53 half. Nothing had got faster — the lookup had quietly started returning the nav control instead of the header's, so the header's own button stopped being what we hid and mirrored. That function is scoped to `vc.view` now and cannot wander into the nav bar; `album_controls` reports `nav_download` and its opacity separately so the two can never be confused again |
 | **1.1.53** | **The header download control is fixed; the flash that is left is a different button.** 1.1.52 is confirmed by measurement, not impression — the gap between `download=nil` and the control being found and hidden went from **avg 1.2s / max 7s** across 8 album opens to **avg 0.3s / max 1s** across 9, at one-second log granularity. But the flash persists, which places it on the **navigation bar** button, and that lives outside `vc.view` where nothing in this file has ever looked. 1.1.52's `nav_right` could only say `UIBarButtonItem/-/noimg` three times: no accessibility label, no `image`, so the glyph is drawn by a view *inside* the item. This build looks one level in — `customView` or the item's own backing view, its class, frame, alpha, hidden flag, and its first three children — and **samples twice, at 0.05s and 1.5s**, because one sample cannot show a flash and two either side of the header build show whether an item goes away on its own and which one it was. **Also removes a matcher that was wrong by construction:** the nav-bar download search returned *any* right-hand item containing a `UIImageView` or `UIButton`, which on this page is the "•••" more-menu — it would have hidden it. All 74 `album_controls` samples in the 1.1.52 log resolve download via the header search instead, so it has never fired; unreached is not the same as correct, and this project has already spent three builds on that exact species of matcher |

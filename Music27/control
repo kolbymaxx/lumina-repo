@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.56
+Version: 1.1.57
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.56: swipe the mini pill to skip or go back — a pan on Music's own mini player (and the sliver of pill that does not overlap it) drives a two-stack carousel. Reasoned, not yet on device.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.57: full-bleed album artwork under the nav bar, page colour from the cover. Music's own artwork view is resized so animated covers keep playing.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks

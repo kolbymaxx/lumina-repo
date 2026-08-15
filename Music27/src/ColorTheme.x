@@ -59,14 +59,16 @@ static void M27ApplyWash(UIView *view, M27ColorPalette *palette) {
     if (!wash) {
         wash = [CAGradientLayer layer];
         wash.name = @"M27Wash";
-        wash.zPosition = -1000;
+        // zPosition -1000 put this behind the album page's opaque
+        // UICollectionView (bg 1.00). The wash has to sit on that view, or
+        // at least not behind it.
         [view.layer insertSublayer:wash atIndex:0];
     }
     wash.frame = view.bounds;
     wash.colors = @[
-        (id)[palette.background colorWithAlphaComponent:0.45].CGColor,
-        (id)[palette.backgroundSecondary colorWithAlphaComponent:0.18].CGColor,
-        (id)[UIColor clearColor].CGColor
+        (id)[palette.background colorWithAlphaComponent:0.92].CGColor,
+        (id)[palette.backgroundSecondary colorWithAlphaComponent:0.78].CGColor,
+        (id)[palette.background colorWithAlphaComponent:0.55].CGColor
     ];
     wash.startPoint = CGPointMake(0.5, 0.0);
     wash.endPoint = CGPointMake(0.5, 1.0);
@@ -101,10 +103,35 @@ static UIImage *M27ArtworkFromNowPlayingInfo(void) {
     return [(MPMediaItemArtwork *)artwork imageWithSize:CGSizeMake(300, 300)];
 }
 
+static UIView *M27ThemePaintTarget(UIViewController *vc) {
+    if (!vc.isViewLoaded) return nil;
+    if (!M27LooksLikeAlbumOrPlaylist(vc)) return vc.view;
+    // The album wash was painted on vc.view at zPosition -1000. The
+    // UICollectionView above it reports bg 1.00 and covers the page, which is
+    // why Artwork Color Theme never appeared. Colour the collection view.
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:vc.view];
+    NSInteger visited = 0;
+    while (stack.count > 0 && visited < 40) {
+        UIView *current = stack.lastObject;
+        [stack removeLastObject];
+        visited++;
+        if ([current isKindOfClass:UICollectionView.class]) return current;
+        NSInteger count = MIN((NSInteger)current.subviews.count, 16);
+        for (NSInteger i = 0; i < count; i++) {
+            [stack addObject:current.subviews[(NSUInteger)i]];
+        }
+    }
+    return vc.view;
+}
+
 static void M27ThemeController(UIViewController *vc) {
     M27Prefs *prefs = M27Prefs.shared;
     if (!(prefs.enabled && prefs.colorThemeEnabled)) {
-        if (vc.isViewLoaded) M27RemoveWash(vc.view);
+        if (vc.isViewLoaded) {
+            M27RemoveWash(vc.view);
+            UIView *target = M27ThemePaintTarget(vc);
+            if (target != vc.view) M27RemoveWash(target);
+        }
         return;
     }
     if (!M27ShouldThemeController(vc)) return;
@@ -116,12 +143,21 @@ static void M27ThemeController(UIViewController *vc) {
     M27ColorPalette *palette = [M27ColorTheme.shared paletteFromImage:artwork];
     if (!palette) return;
     [M27ColorTheme.shared applyPalette:palette animated:YES];
-    M27ApplyWash(vc.view, palette);
+    UIView *target = M27ThemePaintTarget(vc);
+    if (target != vc.view) {
+        target.backgroundColor = palette.background;
+        vc.view.backgroundColor = palette.background;
+    }
+    M27ApplyWash(target, palette);
     M27TintControls(vc.view, palette);
 }
 
 static void M27ClearThemeOnController(UIViewController *vc) {
-    if (vc.isViewLoaded) M27RemoveWash(vc.view);
+    if (vc.isViewLoaded) {
+        M27RemoveWash(vc.view);
+        UIView *target = M27ThemePaintTarget(vc);
+        if (target != vc.view) M27RemoveWash(target);
+    }
     if (M27IsNowPlayingController(vc) || M27LooksLikeAlbumOrPlaylist(vc)) {
         UIViewController *top = M27TopViewController();
         if (top != vc) {
@@ -145,7 +181,7 @@ static void M27ClearThemeOnController(UIViewController *vc) {
     if (!(prefs.enabled && prefs.colorThemeEnabled)) return;
     if (!M27ShouldThemeController(self)) return;
     M27ColorPalette *palette = M27ColorTheme.shared.activePalette;
-    if (palette) M27ApplyWash(self.view, palette);
+    if (palette) M27ApplyWash(M27ThemePaintTarget(self), palette);
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
