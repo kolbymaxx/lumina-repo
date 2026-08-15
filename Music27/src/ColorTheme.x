@@ -135,6 +135,17 @@ static void M27ThemeController(UIViewController *vc) {
         return;
     }
     if (!M27ShouldThemeController(vc)) return;
+    // AlbumControls owns the album / playlist page when the glass dock is
+    // on. A second translucent wash here is the "something behind the
+    // original UI" layer from 1.1.58.
+    if (prefs.glassTabBarEnabled && M27LooksLikeAlbumOrPlaylist(vc)) {
+        if (vc.isViewLoaded) {
+            M27RemoveWash(vc.view);
+            UIView *target = M27ThemePaintTarget(vc);
+            if (target != vc.view) M27RemoveWash(target);
+        }
+        return;
+    }
 
     UIImage *artwork = M27LargestImageInView(vc.view);
     if (!artwork && M27IsNowPlayingController(vc)) {
@@ -180,6 +191,7 @@ static void M27ClearThemeOnController(UIViewController *vc) {
     M27Prefs *prefs = M27Prefs.shared;
     if (!(prefs.enabled && prefs.colorThemeEnabled)) return;
     if (!M27ShouldThemeController(self)) return;
+    if (prefs.glassTabBarEnabled && M27LooksLikeAlbumOrPlaylist(self)) return;
     M27ColorPalette *palette = M27ColorTheme.shared.activePalette;
     if (palette) M27ApplyWash(M27ThemePaintTarget(self), palette);
 }

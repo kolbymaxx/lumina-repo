@@ -7,7 +7,7 @@ Jailbreak tweak that restyles **Apple Music on iOS 16 / 17** toward the **iOS 26
   - **Collapsed (after scroll down):** merged pill with red Music button · now playing · Search
   - Tap the **red button** to expand back to the 5-tab layout
 - **Album / playlist controls:** Shuffle (circle) · Play (pill) · Download (circle)
-- **Full-bleed album artwork** under the nav bar, page colour from the cover (1.1.58; 1.1.57 failed on device)
+- **Full-bleed album artwork** under the nav bar, page colour from the cover (1.1.59; 1.1.58 sat behind the original UI)
 - Artwork-driven color wash on album / playlist / now-playing
 - **Pinned** row at the top of Library + Pin / Unpin in context menus and detail nav bars
 
@@ -25,7 +25,7 @@ Settings live under **Settings → Music27**.
 
 ## Planned next: full-bleed album artwork
 
-**Shipped in 1.1.58. 1.1.57 failed on device — stock square, header-only colour.**
+**Shipped in 1.1.59. 1.1.58 sat behind the original UI; 1.1.57 left the stock square.**
 
 **The change.** On the album / playlist detail page, iOS 26/27 runs the cover
 art **edge to edge** across the top — behind the nav bar, no inset square — and
@@ -150,38 +150,48 @@ safe_top = 94
 - Hiding a view you still need to hit-test needs a **mask**, never `alpha` or
   `layer.opacity` — they are the same property. See 1.1.43.
 
-**Why 1.1.57 failed on device.** Five album screenshots (Delicious, SHE DID IT
-AGAIN, Fancy Some More?, Midnight Sun, Positions Deluxe) still showed the
-stock centred square and Apple's header-only wash — colour stopping at the
-Play row, track list black. Two things explain that together:
+**Why 1.1.58 failed on device.** "Colour isn't filling anymore and it looks
+like there's something behind the original UI." Two self-inflicted layers:
 
-1. **The collection view resets the artwork frame** after
-   `UIViewController viewDidLayoutSubviews`. Even when the 231×231 square was
-   found and resized, Music put it back. 1.1.58 re-applies the target frame
-   from the marked artwork's own `layoutSubviews` and from the collection
-   view's layout pass.
-2. **Track cells are an opaque black wall.** Colouring the collection view
-   itself is invisible under them. 1.1.58 installs a tagged
-   `collection.backgroundView` plate and clears `visibleCells` /
-   supplementary backgrounds so the wash reaches the list. Palette extraction
-   also dropped the 1×1 average (muddy maroon / olive) for the most saturated
-   pixel in a 16×16 downsample.
+1. **The cover was pinned to the window.** `M27BleedTargetFrame` converted
+   window `{0,0,W,W}` into the header. That keeps the enlarged art stuck to
+   the screen while Music's original square, title, and Play row scroll over
+   it. 1.1.59 pins a content-space `{0,0,W,W}` relative to the reusable
+   header's collection frame, so the cover travels with the header, and
+   scales Music's own view (nested image / player included) instead of
+   growing an empty parent around a 231×231 square.
+2. **The header was punched clear and the wash was translucent.** Clearing
+   `ContainerDetailHeaderReusableView` without an opaque plate that could
+   actually show through the track cells left a ghost layer behind the stock
+   page. 1.1.59 paints an opaque `backgroundView` plate, walks *into* each
+   cell (Music's black wall is a subview, not `cell.backgroundColor`), and
+   re-clears cells on their own `layoutSubviews` so newly recycled rows do
+   not come back black. The 1.1.58 alpha wash is removed; Artwork Color
+   Theme does not paint a second wash on this page while the glass dock is
+   on.
+
+**Why 1.1.57 failed on device.** Five album screenshots still showed the
+stock centred square and Apple's header-only wash. The collection view
+reset the artwork frame after the view-controller layout pass, and opaque
+track cells hid any colour on the collection itself.
 
 Animated covers still use Music's own view. Motion is frozen when Low Power
 Mode is on (`layer.speed = 0` and any `AVPlayer` is paused) and left to Music
 otherwise.
 
-**On-device checks for 1.1.58 (iPhone 12 mini / 17.3):**
+**On-device checks for 1.1.59 (iPhone 12 mini / 17.3):**
 
 - Artwork reaches the top of the screen, behind the nav bar, full width.
-- The track list background matches the cover's main colour — not black below
-  the Play row.
+- Scrolling the track list moves the cover with the header — it does not
+  stay stuck under the original square / title / Play row.
+- The track list background matches the cover's main colour — not black
+  below the Play row, and not a second copy of the page showing through.
 - An animated cover (e.g. *Positions (Deluxe)*) keeps playing, not a frozen
   frame, **unless Low Power Mode is on** (yellow battery) — then it must sit
   still.
 - The glass Shuffle / Play / Download row is still on the header and still works.
-- `status.log` shows `album_bleed` with `found=yes|no`, `lpm=`, `color=#RRGGBB`,
-  `plate=`, `cells=`, and `inner=` naming the drawer (image vs player layer).
+- `status.log` shows `album_bleed` with `found=yes|no`, `pin=content`,
+  `xform=`, `lpm=`, `color=#RRGGBB`, `plate=`, `cells=`, and `inner=`.
   If the square is still stock after this build, that line is the next input.
 
 ## Planned next: swipe the mini pill to skip / go back
@@ -263,7 +273,8 @@ say so if the incoming side looks empty on a skip-forward.
 | **1.1.27** | Stray sixth tab: Music reports **6 view controllers but shows 5 tabs**, and the extra one rendered as "Tab 5". Dock indices are now mapped to the controllers that actually own a tab bar item |
 | **1.1.28** | Hides Music's own tab bar + mini player behind the dock. Worked — but hiding with `alpha` also made the mini player **un-hit-testable**, so the dock's Now Playing pill went dead |
 | **1.1.29** | Hides via `layer.opacity` instead of `alpha`. ~~`hitTest:` refuses any view with `alpha < 0.01`, so `alpha` was hiding the very thing it needed to find.~~ **Wrong — see 1.1.43.** `UIView.alpha` is backed by `CALayer.opacity`; they are the same property, so this changed nothing. The view stayed un-hit-testable for fourteen more versions |
-| **1.1.58** | **1.1.57 failed on device.** Screenshots still showed the stock centred square and Apple's header-only wash. Two causes: Music's collection view resets the artwork frame after the view-controller layout pass, and opaque black track cells hide any colour on the collection itself. This build marks the found square and re-pins `{0,0,W,W}` from the artwork's own `layoutSubviews` and from `UICollectionView layoutSubviews`; paints a tagged `backgroundView` plate; clears visible cells and supplementary views; extracts the most saturated 16×16 pixel instead of a 1×1 average; and freezes animated covers in Low Power Mode (`layer.speed = 0`, pause any `AVPlayer`) without calling `play` when LPM is off. `album_bleed` now always fires, including `found=no`, `lpm=`, `color=`, `plate=`, `cells=`. Colour is applied even when the square is missing so the list is never left black. **Reasoned, not yet on device.** |
+| **1.1.59** | **1.1.58 sat behind the original UI.** Window `{0,0,W,W}` pinned the enlarged cover to the screen, and punching the header clear over a translucent wash left a ghost copy of the page behind Music's square, title, and Play row. Colour also failed to fill: track cells keep their own opaque black subviews, so clearing `cell.backgroundColor` did nothing. This build pins content-space `{0,0,W,W}` relative to the reusable header so the cover scrolls with it; scales Music's own artwork view (nested image / player included); paints an opaque `backgroundView` plate; walks into each cell and re-clears on cell layout; and stops Artwork Color Theme from stacking a second wash on this page. `album_bleed` adds `pin=content` and `xform=`. **Reasoned, not yet on device.** |
+| **1.1.58** | **1.1.57 failed on device.** Screenshots still showed the stock centred square and Apple's header-only wash. Two causes: Music's collection view resets the artwork frame after the view-controller layout pass, and opaque black track cells hide any colour on the collection itself. This build marks the found square and re-pins `{0,0,W,W}` from the artwork's own `layoutSubviews` and from `UICollectionView layoutSubviews`; paints a tagged `backgroundView` plate; clears visible cells and supplementary views; extracts the most saturated 16×16 pixel instead of a 1×1 average; and freezes animated covers in Low Power Mode (`layer.speed = 0`, pause any `AVPlayer`) without calling `play` when LPM is off. `album_bleed` now always fires, including `found=no`, `lpm=`, `color=`, `plate=`, `cells=`. Colour is applied even when the square is missing so the list is never left black. **Failed on device — cover stuck to the window behind the original page.** |
 | **1.1.57** | **Full-bleed album artwork + colour match — failed on device.** Resized Music's own 231×231 artwork to `{0,0,W,W}` and moved the wash onto the collection view. On device the square stayed stock and the colour stopped at the Play row: the collection view put the frame back, and opaque cells hid the wash. See 1.1.58. |
 | **1.1.56** | **Swipe the mini pill to skip / go back.** Verified on iPhone 12 mini / 17.3. A pan on Music's own mini player — the view the passthrough already delivers taps to — drives a two-stack carousel on both dock modes. Music's tap-to-expand waits for that pan to fail, so tap-to-open and swipe-to-skip can coexist. Previous incoming uses tracks this process has already seen; next incoming is blank until MediaRemote answers. Direction-biased so a 52pt capsule does not steal vertical scrolls. |
 | **1.1.55** | **1.1.54 was wrong, and the log said so in one number.** | 1.1.54 asserted there were two download controls — one in the nav bar, one in the header — and scoped `M27FindDownloadControl` to `vc.view` to keep them apart. On device: **`download=nil` on all 192 samples**, while `nav_download` resolved every time. There is no download button inside the album page on 17.3. Scoping the lookup to the page did not separate two controls, it discarded the only one — which is exactly why the glass button "does nothing" and the red one sat at the top permanently. Two consequences follow. **The 1.1.53 "regression" was not one:** the label match did change what the lookup returned, but from *nothing yet* to *the real control*, and the drop in `download=nil` counts was the fix appearing, not a fault. **And the nav button is not a spare:** ours mirrors and fires it, so restoring it while our row is up just puts the duplicate back, and iOS 27 shows only "•••" there anyway — it is now restored on `viewWillDisappear` alone. **The tap works because it stopped pretending the view was a control.** `MusicCoreUI.SymbolButton` is not a `UIControl`, so `sendActionsForControlEvents:` reached nothing; the row keeps the `UIBarButtonItem` and sends its own `target`/`action`, both public properties. **The hide is retried, not one-shot** — at `viewWillAppear` the item usually has no view yet, which is why 1.1.54's single attempt left `nav_download_opacity=1` in 191 of 192 samples — and it re-hides when Music swaps the item through Download → Downloading → Downloaded, handing the previous view back first |

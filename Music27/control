@@ -1,8 +1,8 @@
 Package: com.music27.tweak
 Name: Music27
-Version: 1.1.58
+Version: 1.1.59
 Architecture: iphoneos-arm64
-Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.58: full-bleed album art that survives collection-view layout, page colour through the track list, animated covers frozen in Low Power Mode.
+Description: Restyle Apple Music on iOS 16/17 toward the iOS 26/27 Liquid Glass look. 1.1.59: album colour fills the page instead of sitting behind the original UI; cover scrolls with the header.
 Maintainer: Music27
 Author: Music27
 Section: Tweaks

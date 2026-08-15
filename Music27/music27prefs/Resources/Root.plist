@@ -10,7 +10,9 @@
 			<key>label</key>
 			<string>Music27</string>
 			<key>footerText</key>
-			<string>1.1.58: 1.1.57 left the cover as a centred square and the colour stopped at the Play row. Music resets the artwork frame after our layout pass, and the track cells are opaque black over the wash. This build re-pins the square from the collection view's own layout, paints the collection backgroundView, and clears visible cells so the colour runs the full page. Palette picks the most saturated pixel instead of a muddy 1×1 average. Animated covers keep playing unless Low Power Mode is on.
+			<string>1.1.59: 1.1.58 pinned the cover to the window and punched the header clear, so the enlarged art sat still behind Music's original square, title, and Play row — colour looked like it had gone, and something showed through the original UI. The cover now scales in place and scrolls with the header. The page colour is an opaque plate; track cells are cleared through their inner views on every layout so the colour actually fills the list.
+
+1.1.58: 1.1.57 left the cover as a centred square and the colour stopped at the Play row. Music resets the artwork frame after our layout pass, and the track cells are opaque black over the wash. This build re-pins the square from the collection view's own layout, paints the collection backgroundView, and clears visible cells so the colour runs the full page. Palette picks the most saturated pixel instead of a muddy 1×1 average. Animated covers keep playing unless Low Power Mode is on. Failed on device — the cover stuck to the screen behind the original page.
 
 1.1.57: album artwork goes edge to edge under the nav bar, and the page takes the cover's colour. Music's own artwork view is resized — not replaced — so an animated cover keeps playing. The wash now sits on the collection view; painting it behind that view is why Artwork Color Theme never showed. Failed on device — the square stayed stock and the colour stayed in the header.
 
@@ -136,7 +138,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Music27 1.1.58 — full-bleed album art + full-page colour. 1.1.57 failed on device; 16.7 untested.</string>
+			<string>Music27 1.1.59 — album colour fills the page; cover scrolls with the header. 16.7 untested.</string>
 		</dict>
 	</array>
 	<key>title</key>
