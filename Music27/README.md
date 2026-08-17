@@ -25,7 +25,29 @@ Settings live under **Settings → Music27**.
 
 ## Planned next: full-bleed album artwork
 
-**Shipped in 1.1.59. 1.1.58 sat behind the original UI; 1.1.57 left the stock square.**
+**Not shipped. 1.1.59 claimed it was; the device says otherwise.**
+
+Four album screenshots on iPhone13,1 / 17.3 (Zara Larsson, PinkPantheress,
+Tyla, Kash Kyla) all show the **stock inset square**, not edge-to-edge art. What
+*is* working in those shots is the palette: every header carries the artwork's
+colour (wine, navy, olive, oxblood), so `M27ColorTheme` extraction and
+`applyPalette:` are proven on device. Two things are not:
+
+- the artwork is never enlarged, and
+- the colour stops dead at the track list, which stays black.
+
+**1.1.60 does not attempt a fix.** Both symptoms have two causes that look
+identical from a screenshot, and this project has already spent five builds on
+that mistake once. It adds the two measurements that separate them:
+
+| Field | Answers |
+|-------|---------|
+| `anchor` | `SPKAnchorReport()` — visited / candidates / chosen / **what was rejected and by which constraint**. Distinguishes "no square found" from "found, and the transform is being reverted". |
+| `collection_hex`, `plate_hex`, `page_hex` | The actual colours. `collection_bg` logged only *alpha*, and black and wine are both 1.0 — so the old line could not tell "painted with the palette" from "still Music's black". |
+
+The anchor is [`SPKit/SPKAnchor.h`](../SPKit/SPKAnchor.h), run as a **second
+opinion only** — its result is deliberately not fed back into layout, so this
+build measures without also changing what it measures.
 
 **The change.** On the album / playlist detail page, iOS 26/27 runs the cover
 art **edge to edge** across the top — behind the nav bar, no inset square — and

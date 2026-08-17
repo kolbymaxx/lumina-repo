@@ -1,5 +1,6 @@
 #import "Music27.h"
 #import "M27GlassChrome.h"
+#import "SPKAnchor.h"
 #import <objc/runtime.h>
 
 // Restyles album / playlist detail Play|Shuffle into the iOS 27 row:
@@ -992,6 +993,36 @@ static UIView *M27ResolvedArtwork(UIViewController *vc, UIView *page) {
     return M27FindAlbumArtworkView(page);
 }
 
+/// A second opinion from SPKit, run purely to be logged.
+///
+/// 1.1.59 shipped full-bleed artwork and the device still shows the stock inset
+/// square on every album. That has two possible causes which look identical
+/// from a screenshot — the finder returned nil, or it found the square and the
+/// transform is being reverted — and `found: yes/no` alone does not separate
+/// them well enough to act on, because a nil tells you nothing about *why*.
+///
+/// So this runs the same search through `SPKAnchorResolve` with the same
+/// thresholds the hand-rolled finder uses, and logs its rejection census. It
+/// deliberately does NOT feed the result back into the layout: changing the
+/// finder in the same build that diagnoses it is how you end up unable to say
+/// which change moved the needle. Once the census names the constraint that is
+/// wrong, the hand-rolled pass goes away and this becomes the finder.
+static void M27LogAnchorSecondOpinion(UIView *page) {
+    UIView *header = M27FindSubviewWithSuffix(page, @"DetailHeader", 0);
+    UIView *reusable = M27FindSubviewWithSuffix(page, @"ContainerDetailHeaderReusableView", 0);
+    UIView *root = header ?: (reusable ?: page);
+
+    SPKAnchorQuery q = SPKAnchorQueryMake();
+    q.nameContains = "artwork";
+    q.minSide = 150.0;
+    q.maxSideFraction = 0.96;
+    q.maxOriginYFraction = 0.52;
+    q.minAspect = 0.68;
+    q.maxAspect = 1.50;
+    q.rejectScrollViews = YES;
+    (void)SPKAnchorResolve(root, page, q);
+}
+
 static BOOL M27LowPowerMode(void) {
     return NSProcessInfo.processInfo.isLowPowerModeEnabled;
 }
@@ -1645,6 +1676,11 @@ static BOOL M27ApplyFullBleed(UIViewController *vc) {
     if (!loggedFound || ![loggedFound isEqualToString:foundNow]) {
         objc_setAssociatedObject(vc, kM27BleedLoggedKey, foundNow, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         if (art) target = M27BleedTargetFrame(art, page);
+        // Run last, immediately before the write — SPKAnchor's census is a
+        // global overwritten by the next resolve, so nothing may resolve
+        // between here and reading it.
+        M27LogAnchorSecondOpinion(page);
+        NSString *anchorReport = SPKAnchorReport();
         CGFloat headerBG = header.backgroundColor
             ? CGColorGetAlpha(header.backgroundColor.CGColor) : 0.0;
         CGFloat collectionBG = collection.backgroundColor
@@ -1659,6 +1695,12 @@ static BOOL M27ApplyFullBleed(UIViewController *vc) {
             @"page": NSStringFromCGRect(page.bounds),
             @"header_bg": @((double)headerBG),
             @"collection_bg": @((double)collectionBG),
+            // Alpha alone cannot tell "painted with the palette" from "still
+            // Music's black" — both are 1.0, which is why four screenshots of a
+            // coloured header over a black track list stayed ambiguous.
+            @"collection_hex": M27ColorHex(collection.backgroundColor),
+            @"plate_hex": M27ColorHex(collection.backgroundView.backgroundColor),
+            @"page_hex": M27ColorHex(page.backgroundColor),
             @"cells": @((long)cells),
             @"plate": (collection.backgroundView.tag == kM27BleedPlateTag) ? @"yes" : @"no",
             @"palette": palette ? @"yes" : @"no",
@@ -1668,6 +1710,7 @@ static BOOL M27ApplyFullBleed(UIViewController *vc) {
             @"xform": art ? [NSString stringWithFormat:@"%.2f,%.1f,%.1f",
                              art.transform.a, art.transform.tx, art.transform.ty] : @"-",
             @"inner": M27ArtworkInnerDescription(art),
+            @"anchor": anchorReport ?: @"-",
         });
     }
 

@@ -16,6 +16,7 @@ TWEAK_NAME = Music27
 Music27_FILES = \
 	src/spkit/SPKRuntime.m \
 	src/spkit/SPKOverlayWindow.m \
+	src/spkit/SPKAnchor.m \
 	src/Tweak.x \
 	src/GlassTabBar.x \
 	src/AlbumControls.x \
