@@ -13,6 +13,132 @@ static const CGFloat kM27ExpandedTabHeight = 58.0;
 static const CGFloat kM27ExpandedGap = 8.0;
 static const CGFloat kM27CircleButton = 44.0;
 
+#pragma mark - M27LiquidSelector
+
+/// Sliding glass selector that tracks the active tab, behind the tab row.
+///
+/// Modeled on how Liquid Glass tab selection reads on iOS: the capsule leads
+/// with its glass edge when it moves, stretching toward the destination tab
+/// and springing back to true width on arrival, with a specular sheen that
+/// sweeps across it as it travels. This is the UIKit-only approximation —
+/// it reuses M27GlassChrome's ultra-thin-material pill rather than sampling
+/// a live backdrop, so there's no Metal/refraction here (see NowPlayingGlass
+/// notes for where that would live). Kept private to this file: it has no
+/// callers outside M27FloatingDock and doesn't need its own header.
+@interface M27LiquidSelector : UIView
+@property (nonatomic, strong, readonly) UIVisualEffectView *glass;
+- (void)moveToFrame:(CGRect)frame animated:(BOOL)animated;
+@end
+
+@interface M27LiquidSelector ()
+@property (nonatomic, strong) UIVisualEffectView *glass;
+@property (nonatomic, strong) CAGradientLayer *sheen;
+@end
+
+@implementation M27LiquidSelector
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        // The tab buttons sit above this view and still own every touch.
+        self.userInteractionEnabled = NO;
+
+        _glass = [M27GlassChrome pillWithCornerRadius:16.0];
+        _glass.userInteractionEnabled = NO;
+        _glass.frame = self.bounds;
+        _glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self addSubview:_glass];
+
+        // A ~15° band of light, parked off-frame at rest. Sliding the selector
+        // sweeps it across the glass — see -playSheenSweepForDuration:.
+        _sheen = [CAGradientLayer layer];
+        _sheen.startPoint = CGPointMake(0.0, 0.0);
+        _sheen.endPoint = CGPointMake(1.0, 1.0);
+        _sheen.colors = @[
+            (__bridge id)[UIColor colorWithWhite:1.0 alpha:0.0].CGColor,
+            (__bridge id)[UIColor colorWithWhite:1.0 alpha:0.32].CGColor,
+            (__bridge id)[UIColor colorWithWhite:1.0 alpha:0.0].CGColor,
+        ];
+        _sheen.locations = @[@0.35, @0.5, @0.65];
+        _sheen.frame = self.bounds;
+        [_glass.contentView.layer addSublayer:_sheen];
+    }
+    return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    self.glass.frame = self.bounds;
+    self.sheen.frame = self.bounds;
+    [CATransaction commit];
+}
+
+/// Cancels any in-flight move and slides/morphs to `frame`. Reads the
+/// presentation layer first so a tap mid-animation redirects smoothly
+/// instead of snapping the selector back to its animation's start point.
+- (void)moveToFrame:(CGRect)targetFrame animated:(BOOL)animated {
+    if (CGRectEqualToRect(self.frame, targetFrame) && !self.layer.animationKeys.count) {
+        return;
+    }
+    if (!animated) {
+        [self.layer removeAllAnimations];
+        self.frame = targetFrame;
+        return;
+    }
+
+    CGRect startFrame = self.frame;
+    if (self.layer.presentationLayer) {
+        startFrame = ((CALayer *)self.layer.presentationLayer).frame;
+    }
+    [self.layer removeAllAnimations];
+    self.frame = startFrame;
+
+    CGFloat travel = targetFrame.origin.x - startFrame.origin.x;
+    CGFloat direction = travel > 0 ? 1.0 : (travel < 0 ? -1.0 : 0.0);
+    // Overshoot width toward the direction of travel — capped so a hop to the
+    // adjacent tab doesn't stretch as far as a jump clear across the row.
+    CGFloat stretch = MIN(fabs(travel) * 0.35, targetFrame.size.width * 0.28);
+    CGRect stretchedFrame = targetFrame;
+    stretchedFrame.size.width += stretch;
+    if (direction < 0) stretchedFrame.origin.x -= stretch;
+
+    [self playSheenSweepForDuration:0.55];
+
+    // Phase 1: fast ease-out to the stretched frame — the leading edge of the
+    // blob arrives first while the trailing edge is still catching up.
+    [UIView animateWithDuration:0.15
+                          delay:0
+                        options:UIViewAnimationOptionCurveEaseOut | UIViewAnimationOptionBeginFromCurrentState
+                     animations:^{
+        self.frame = stretchedFrame;
+    } completion:^(BOOL finished) {
+        if (!finished) return;
+        // Phase 2: spring the stretch back down to the true target — the settle.
+        [UIView animateWithDuration:0.40
+                              delay:0
+             usingSpringWithDamping:0.62
+              initialSpringVelocity:0.5
+                            options:UIViewAnimationOptionAllowUserInteraction | UIViewAnimationOptionBeginFromCurrentState
+                         animations:^{
+            self.frame = targetFrame;
+        } completion:nil];
+    }];
+}
+
+- (void)playSheenSweepForDuration:(NSTimeInterval)duration {
+    [self.sheen removeAnimationForKey:@"m27sheen"];
+    CABasicAnimation *anim = [CABasicAnimation animationWithKeyPath:@"locations"];
+    anim.fromValue = @[@(-0.30), @(-0.15), @(0.0)];
+    anim.toValue = @[@(1.0), @(1.15), @(1.3)];
+    anim.duration = duration;
+    anim.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+    anim.removedOnCompletion = YES;
+    [self.sheen addAnimation:anim forKey:@"m27sheen"];
+}
+
+@end
+
 @interface M27FloatingDock ()
 /// Collapsed is THREE separate capsules, matching iOS 27: the tab affordance in
 /// its own rounded square, the now-playing pill, and Search in a circle.
@@ -39,6 +165,7 @@ static const CGFloat kM27CircleButton = 44.0;
 @property (nonatomic, strong) UIVisualEffectView *tabsGlass;
 @property (nonatomic, strong) UIStackView *tabsStack;
 @property (nonatomic, strong) NSMutableArray<UIButton *> *tabButtons;
+@property (nonatomic, strong) M27LiquidSelector *tabSelector;
 @end
 
 @implementation M27FloatingDock
@@ -259,6 +386,11 @@ static const CGFloat kM27CircleButton = 44.0;
     _tabsStack.distribution = UIStackViewDistributionFillEqually;
     _tabsStack.alignment = UIStackViewAlignmentCenter;
     [_tabsGlass.contentView addSubview:_tabsStack];
+
+    // Behind the buttons, above the pill's own edge-light/border chrome.
+    _tabSelector = [[M27LiquidSelector alloc] initWithFrame:CGRectZero];
+    _tabSelector.hidden = YES; // shown once reloadTabs positions it
+    [_tabsGlass.contentView insertSubview:_tabSelector belowSubview:_tabsStack];
 }
 
 #pragma mark - Public
@@ -441,7 +573,7 @@ static const CGFloat kM27CircleButton = 44.0;
         [self.tabsStack addArrangedSubview:button];
         [self.tabButtons addObject:button];
     }
-    [self updateTabSelection];
+    [self updateTabSelectionAnimated:NO];
     [self setNeedsLayout];
 }
 
@@ -449,6 +581,7 @@ static const CGFloat kM27CircleButton = 44.0;
     [M27GlassChrome applyPaletteTintToGlass:self.collapsedGlass];
     [M27GlassChrome applyPaletteTintToGlass:self.miniGlass];
     [M27GlassChrome applyPaletteTintToGlass:self.tabsGlass];
+    [M27GlassChrome applyPaletteTintToGlass:self.tabSelector.glass];
 }
 
 #pragma mark - Layout
@@ -532,6 +665,10 @@ static const CGFloat kM27CircleButton = 44.0;
     self.tabsGlass.frame = tabsHost.bounds;
     [M27GlassChrome applyPaletteTintToGlass:self.tabsGlass];
     self.tabsStack.frame = CGRectInset(self.tabsGlass.contentView.bounds, 4.0, 4.0);
+    // Reposition (never re-slide) the liquid selector after a frame change —
+    // a rotation or mode switch should snap it to the right spot, not replay
+    // the stretch/settle animation meant for actual tab taps.
+    [self layoutTabSelectorAnimated:NO];
 
     CGFloat eArt = 36.0;
     CGFloat ePad = 10.0;
@@ -582,8 +719,13 @@ static const CGFloat kM27CircleButton = 44.0;
 }
 
 - (void)updateTabSelection {
+    [self updateTabSelectionAnimated:YES];
+}
+
+- (void)updateTabSelectionAnimated:(BOOL)animated {
     UIColor *active = [UIColor colorWithRed:0.98 green:0.18 blue:0.30 alpha:1.0];
     UIColor *inactive = UIColor.secondaryLabelColor;
+    UIButton *newlySelected = nil;
     for (UIButton *button in self.tabButtons) {
         BOOL selected = (button.tag == self.selectedTabIndex);
         UIColor *color = selected ? active : inactive;
@@ -597,16 +739,64 @@ static const CGFloat kM27CircleButton = 44.0;
         } else {
             [button setTitleColor:color forState:UIControlStateNormal];
         }
-        if (selected) {
-            button.backgroundColor = [active colorWithAlphaComponent:0.12];
-            button.layer.cornerRadius = 16.0;
-            if (@available(iOS 13.0, *)) {
-                button.layer.cornerCurve = kCACornerCurveContinuous;
-            }
-        } else {
-            button.backgroundColor = UIColor.clearColor;
-        }
+        // The liquid selector behind the stack carries the highlight now —
+        // buttons stay flat so the glass shows through evenly under both.
+        button.backgroundColor = UIColor.clearColor;
+        if (selected) newlySelected = button;
     }
+    [self layoutTabSelectorAnimated:animated];
+    if (animated && newlySelected) {
+        [self bounceTabButton:newlySelected];
+    }
+}
+
+/// Positions the liquid selector over the currently selected tab's frame
+/// within the stack, sliding it there when `animated`.
+- (void)layoutTabSelectorAnimated:(BOOL)animated {
+    if (self.tabButtons.count == 0) {
+        self.tabSelector.hidden = YES;
+        return;
+    }
+    NSInteger index = self.selectedTabIndex;
+    if (index < 0 || index >= (NSInteger)self.tabButtons.count) index = 0;
+    UIButton *button = self.tabButtons[index];
+
+    // UIStackView lays arranged subviews out via its own internal
+    // constraints even though *its* frame is set manually in layoutSubviews,
+    // so force that pass to finish before trusting button.frame.
+    [self.tabsStack layoutIfNeeded];
+    CGRect frame = [self.tabsStack convertRect:button.frame toView:self.tabsGlass.contentView];
+    // Slightly smaller than the button's own hit area, matching the
+    // reference's selection capsule sitting inside the tab rather than
+    // filling it edge to edge.
+    frame = CGRectInset(frame, 2.0, 4.0);
+
+    self.tabSelector.hidden = NO;
+    [self.tabSelector moveToFrame:frame animated:animated];
+}
+
+/// Quick scale-up/settle on the tab that just became selected — the same
+/// icon "pop" Apple's own tab bar does on selection, reinforcing that the
+/// glass underneath just caught something.
+- (void)bounceTabButton:(UIButton *)button {
+    [button.layer removeAllAnimations];
+    button.transform = CGAffineTransformIdentity;
+    [UIView animateWithDuration:0.15
+                          delay:0.03
+                        options:UIViewAnimationOptionCurveEaseOut
+                     animations:^{
+        button.transform = CGAffineTransformMakeScale(1.16, 1.16);
+    } completion:^(BOOL finished) {
+        if (!finished) return;
+        [UIView animateWithDuration:0.32
+                              delay:0
+             usingSpringWithDamping:0.5
+              initialSpringVelocity:0.6
+                            options:UIViewAnimationOptionAllowUserInteraction
+                         animations:^{
+            button.transform = CGAffineTransformIdentity;
+        } completion:nil];
+    }];
 }
 
 #pragma mark - Actions
