@@ -1,6 +1,7 @@
 #import "CC27.h"
 #import <objc/runtime.h>
 #import <string.h>
+#import <dlfcn.h>
 
 static void CC27ReloadPrefs(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     [CC27Prefs.shared reload];
@@ -32,7 +33,8 @@ static BOOL CC27ViewIsInControlCenter(UIView *view) {
         }
         v = v.superview;
     }
-    return YES;
+    // Unknown host: do not touch. Whitelist ControlCenter ancestors only.
+    return NO;
 }
 
 %group CC27
@@ -94,13 +96,13 @@ static BOOL CC27ViewIsInControlCenter(UIView *view) {
     %orig;
     if (!CC27Prefs.shared.enabled) return;
     // Never touch module containers hosted outside Control Center (Lock
-    // Screen quick actions on iOS 16 use this same class). Glass styling is
-    // allowed while locked — real CC opened from the lock screen has
-    // ControlCenter ancestors, quick actions never do. Edit chrome stays
-    // unlock-only (gated inside CC27EditSession).
+    // Screen quick actions on iOS 16 use this same class). 1.0.9: glass is
+    // unlock-only again (stability gate). Edit chrome stays unlock-only.
     if (!CC27ViewIsInControlCenter(self)) return;
     @try {
-        if (CC27Prefs.shared.glassChrome) {
+        // Stability gate (1.0.9): no glass while locked. Edit chrome is already
+        // unlock-only; styling lock-screen CC was a 1.0.8 regression risk.
+        if (CC27Prefs.shared.glassChrome && ![CC27EditSession deviceUILocked]) {
             [CC27Glass applyToModuleContainer:self];
         }
         if (CC27EditSession.shared.editing) {
@@ -142,7 +144,7 @@ static void CC27InstallHooks(void) {
             return;
         }
         %init(CC27);
-        NSLog(@"[CC27] 1.0.8 hooks installed (post-launch)");
+        NSLog(@"[CC27] 1.0.9 hooks installed (post-launch)");
     });
 }
 
@@ -151,9 +153,23 @@ static void CC27InstallHooks(void) {
         // Emergency kill switch: create this file (e.g. via SSH/Filza) and
         // respring to fully disable CC27 without uninstalling:
         //   touch /var/mobile/Library/Preferences/com.kolby.cc27.killswitch
-        if ([[NSFileManager defaultManager] fileExistsAtPath:@"/var/mobile/Library/Preferences/com.kolby.cc27.killswitch"]) {
-            NSLog(@"[CC27] kill switch present — not loading");
-            return;
+        // Also accepted under jbroot / /var/jb (Dopamine rootless).
+        {
+            NSMutableArray<NSString *> *killPaths = [NSMutableArray array];
+            NSString *rel = @"/var/mobile/Library/Preferences/com.kolby.cc27.killswitch";
+            const char *(*jbrootFn)(const char *) = (const char *(*)(const char *))dlsym(RTLD_DEFAULT, "jbroot");
+            if (jbrootFn) {
+                const char *p = jbrootFn(rel.UTF8String);
+                if (p && p[0]) [killPaths addObject:[NSString stringWithUTF8String:p]];
+            }
+            [killPaths addObject:[@"/var/jb" stringByAppendingString:rel]];
+            [killPaths addObject:rel];
+            for (NSString *path in killPaths) {
+                if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+                    NSLog(@"[CC27] kill switch present at %@ — not loading", path);
+                    return;
+                }
+            }
         }
         [CC27Prefs.shared reload];
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
@@ -181,6 +197,6 @@ static void CC27InstallHooks(void) {
                 CC27InstallHooks();
             });
         }];
-        NSLog(@"[CC27] 1.0.8 loaded — waiting for SpringBoard launch to finish before hooking");
+        NSLog(@"[CC27] 1.0.9 loaded — waiting for SpringBoard launch to finish before hooking");
     }
 }
