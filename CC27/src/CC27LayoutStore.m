@@ -272,12 +272,17 @@ static NSString *CC27SizeOverridesPath(void) {
         [provider setAndSaveOrderedUserEnabledModuleIdentifiers:ordered];
     }
 
-    [self refreshControlCenterLayout];
-    // Give SpringBoard a beat to instantiate.
-    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
-    [self refreshControlCenterLayout];
-
+    // 1.0.9 stability: persist once. Prefer NeedsReopen — never double-call
+    // refreshControlCenterLayout / _forceInstanceRebuild while CC is open
+    // (that path Safe Modes on 17.3). One rebuild only after dismiss, if CC
+    // is not currently presenting.
     [[NSNotificationCenter defaultCenter] postNotificationName:CC27LayoutDidChangeNotification object:nil];
+
+    if (CC27EditSession.shared.hostVisible) {
+        return CC27LayoutApplyNeedsReopen;
+    }
+
+    [self refreshControlCenterLayout]; // at most once, and only when CC is closed
 
     if ([self.enabledIdentifiers containsObject:identifier] && [self isModuleInstantiated:identifier]) {
         return CC27LayoutApplyVisible;
@@ -297,7 +302,10 @@ static NSString *CC27SizeOverridesPath(void) {
     NSMutableArray *ordered = self.enabledIdentifiers.mutableCopy ?: [NSMutableArray new];
     [ordered removeObject:identifier];
     [provider setAndSaveOrderedUserEnabledModuleIdentifiers:ordered];
-    [self refreshControlCenterLayout];
+    // 1.0.9: same as add — no live instance rebuild while CC is open.
+    if (!CC27EditSession.shared.hostVisible) {
+        [self refreshControlCenterLayout];
+    }
     [[NSNotificationCenter defaultCenter] postNotificationName:CC27LayoutDidChangeNotification object:nil];
     return YES;
 }
