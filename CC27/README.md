@@ -12,6 +12,14 @@ Unlike aesthetic-only tweaks (CC26 / CCXVIII), CC27 focuses on the **real custom
 - Liquid-glass module chrome (round 1×1 / pill modules; expanded menus stay unclipped)
 - Built-in CC27 modules: **Respring**, **Safe Mode**, **UICache**, **Userspace Reboot**
 
+## 1.0.9 fixes
+
+- **No Safe Mode on add/remove while CC is open**: persist the module list once and prefer reopen (NeedsReopen). Dropped the double `refreshControlCenterLayout` / `_forceInstanceRebuild` + `runUntilDate` path. At most one rebuild, and only when Control Center is not presenting.
+- **Unknown hosts are never styled**: `CC27ViewIsInControlCenter` falls through to NO (whitelist ControlCenter ancestors only).
+- **No glass while locked** (stability gate): liquid-glass styling is unlock-only again; edit chrome was already unlock-only.
+- **Kill switch is rootless-aware**: checks jbroot, `/var/jb`, and `/var/mobile` for `com.kolby.cc27.killswitch`.
+- **Drag**: snapshot-follows-finger kept; live neighbor transform reflow disabled; commit still uses positions-only refresh (no full instance rebuild).
+
 ## 1.0.8 fixes
 
 - **Rounded / glassy module styling restored.** Two regressions were stripping the
