@@ -1,8 +1,8 @@
 Package: com.kolby.cc27
 Name: CC27
-Version: 1.0.8
+Version: 1.0.9
 Architecture: iphoneos-arm64
-Description: iOS 26-style Control Center for iOS 15–17. 1.0.8 restores the rounded liquid-glass module styling (a lock screen guard was accidentally stripping it) and brings glass back to CC opened from the lock screen.
+Description: iOS 26-style Control Center for iOS 15–17. 1.0.9 stability: no live double-rebuild on add, no glass while locked, unknown-host = do not style, jbroot killswitch, drag without live neighbor reflow.
 Depends: mobilesubstrate (>= 0.9.5000), preferenceloader, com.opa334.ccsupport, firmware (>= 15.0)
 Conflicts: com.cureux.cc26, com.smfb7.ccxviii, com.dvntm.cc18
 Maintainer: ma6x9x
